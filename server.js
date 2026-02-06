@@ -8,7 +8,7 @@ const winston = require("winston");
 const morgan = require("morgan");
 
 const { initStore, getData, saveData } = require("./lib/store");
-const { probeVideo, createThumbnail, transcodeToMp4, createAdaptiveHlsPackage } = require("./lib/media");
+const { probeVideo, probeImage, createThumbnail, transcodeToMp4, createAdaptiveHlsPackage } = require("./lib/media");
 
 const PORT = Number(process.env.PORT || 3000);
 const UPLOAD_DIR = path.join(__dirname, "uploads");
@@ -210,6 +210,9 @@ function getHlsStatus(item) {
 
 function getOrderedPlaylist(data, options = {}) {
   const { readyOnly = false } = options;
+  const defaultImageDuration = Number(
+    process.env.DEFAULT_IMAGE_DURATION || data?.settings?.imageDefaultDuration || 15
+  );
   const videoMap = new Map(data.videos.map((video) => [video.id, video]));
   const ordered = [];
 
@@ -232,7 +235,7 @@ function getOrderedPlaylist(data, options = {}) {
     hlsStatus: getHlsStatus(item),
     displayDuration:
       detectMediaType(item) === "image"
-        ? Number(item.displayDuration || process.env.DEFAULT_IMAGE_DURATION || 10)
+        ? Number(item.displayDuration || defaultImageDuration)
         : null
   }));
 
@@ -352,6 +355,7 @@ app.get("/api/health", async (req, res) => {
     playerLastUpdate: playerStatus.lastUpdate,
     playlistSize: ordered.length,
     lastError: playerStatus.lastError,
+    settings: data.settings || { imageDefaultDuration: 15 },
     memoryUsage: {
       rss: `${Math.round(process.memoryUsage().rss / 1024 / 1024)} MB`,
       heapUsed: `${Math.round(process.memoryUsage().heapUsed / 1024 / 1024)} MB`
@@ -359,6 +363,43 @@ app.get("/api/health", async (req, res) => {
     diskUsage,
     processingQueue: queueSnapshot()
   });
+});
+
+app.patch("/api/settings", async (req, res) => {
+  const data = getData();
+  const { imageDefaultDuration } = req.body || {};
+  if (imageDefaultDuration === undefined) {
+    return res.status(400).json({ error: "Nothing to update" });
+  }
+
+  const parsed = Number(imageDefaultDuration);
+  if (!Number.isFinite(parsed) || parsed < 3 || parsed > 300) {
+    return res.status(400).json({ error: "imageDefaultDuration must be between 3 and 300" });
+  }
+
+  data.settings = data.settings || {};
+  data.settings.imageDefaultDuration = Math.round(parsed);
+  await saveData();
+  res.json({ status: "ok", settings: data.settings });
+});
+
+app.post("/api/images/apply-default", async (req, res) => {
+  const data = getData();
+  const defaultDuration = Number(
+    process.env.DEFAULT_IMAGE_DURATION || data?.settings?.imageDefaultDuration || 15
+  );
+  const value = Math.round(defaultDuration);
+  let updated = 0;
+
+  data.videos.forEach((item) => {
+    if (detectMediaType(item) === "image") {
+      item.displayDuration = value;
+      updated += 1;
+    }
+  });
+
+  await saveData();
+  res.json({ status: "ok", updated });
 });
 
 app.get("/api/stats", (req, res) => {
@@ -465,6 +506,9 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
     const videoId = uuidv4();
     const ext = path.extname(file.filename).toLowerCase();
     const mediaType = isImageExtension(file.originalname) ? "image" : "video";
+    const defaultImageDuration = Number(
+      process.env.DEFAULT_IMAGE_DURATION || getData()?.settings?.imageDefaultDuration || 15
+    );
     let metadata = {
       duration: 0,
       width: null,
@@ -526,7 +570,7 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
       }, { label: `Procesar ${file.originalname}` });
     } else {
       try {
-        metadata = await probeVideo(file.path);
+        metadata = await probeImage(file.path);
       } catch (error) {
         logger.warn(`Image probe warning for ${file.originalname}: ${error.message}`);
       }
@@ -548,7 +592,7 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
       audioCodec: metadata.audioCodec,
       thumbnail,
       hlsManifest,
-      displayDuration: mediaType === "image" ? Number(process.env.DEFAULT_IMAGE_DURATION || 10) : null,
+      displayDuration: mediaType === "image" ? defaultImageDuration : null,
       createdAt: new Date().toISOString()
     };
 

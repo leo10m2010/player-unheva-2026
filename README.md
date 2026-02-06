@@ -129,6 +129,11 @@ Si el navegador bloquea autoplay con sonido, aparece overlay "Pulsa OK para acti
 - `./data`: metadatos y playlist
 - `./logs`: logs persistentes
 
+## Imagenes (comunicados)
+
+- Duracion por defecto: 15s (editable en Admin)
+- Cada imagen puede tener su propio tiempo en segundos
+
 ## Troubleshooting
 
 - **Sin video en playlist**: sube videos desde `/admin`.

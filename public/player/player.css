@@ -453,6 +453,37 @@ video[hidden] {
   z-index: 2;
 }
 
+body.tizen .video-info-overlay,
+body.tizen .controls-overlay {
+  transition: none;
+}
+
+body.tizen .controls-overlay {
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.4) 60%,
+    transparent 100%
+  );
+}
+
+body.tizen .video-info-overlay {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.9) 0%,
+    rgba(0, 0, 0, 0.4) 60%,
+    transparent 100%
+  );
+}
+
+body.tizen .unmute-overlay {
+  backdrop-filter: none;
+}
+
+body.tizen .loading-spinner {
+  animation: spin 1.2s linear infinite;
+}
+
 .error-overlay {
   position: absolute;
   inset: 0;

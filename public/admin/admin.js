@@ -30,6 +30,8 @@ const metricQueueState = document.getElementById("metricQueueState");
 const metricUploadEstimate = document.getElementById("metricUploadEstimate");
 const metricLastError = document.getElementById("metricLastError");
 const metricLastUpdate = document.getElementById("metricLastUpdate");
+const defaultImageDurationInput = document.getElementById("defaultImageDurationInput");
+const applyDefaultDurationBtn = document.getElementById("applyDefaultDurationBtn");
 const diskMeterBar = document.getElementById("diskMeterBar");
 const processMeter = document.getElementById("processMeter");
 const processMeterFill = document.getElementById("processMeterFill");
@@ -50,6 +52,8 @@ let draggedPlaylistId = null;
 const pendingDurationUpdates = new Map();
 let lastDiskAlertLevel = "ok";
 let uploadInProgress = false;
+let uploadQueue = [];
+let pendingDefaultImageDuration = null;
 let renamingVideo = null;
 let queueWasRunning = false;
 let tvModePreference = "auto";
@@ -278,7 +282,7 @@ function setPlaylistDirty(value) {
 }
 
 function hasPendingChanges() {
-  return playlistDirty || pendingDurationUpdates.size > 0;
+  return playlistDirty || pendingDurationUpdates.size > 0 || pendingDefaultImageDuration !== null;
 }
 
 function updateSaveState() {
@@ -292,6 +296,16 @@ function updateSaveState() {
     saveStateEl.classList.add("is-saved");
     saveStateEl.textContent = "Sin cambios";
   }
+}
+
+function handleDefaultImageDurationInput() {
+  if (!defaultImageDurationInput) return;
+  const initial = Number(defaultImageDurationInput.dataset.initial || 15);
+  const next = Number(defaultImageDurationInput.value || 0);
+  const isDirty = Number.isFinite(next) && next !== initial;
+  defaultImageDurationInput.classList.toggle("is-dirty", isDirty);
+  pendingDefaultImageDuration = isDirty ? next : null;
+  updateSaveState();
 }
 
 async function fetchHealthAndStats() {
@@ -375,6 +389,15 @@ function renderControlCenter(health, stats) {
     ? `Ultimo error: ${health.lastError}`
     : "Sin errores recientes";
   metricLastUpdate.textContent = formatLastUpdate(new Date().toISOString());
+
+  if (defaultImageDurationInput) {
+    const defaultDuration = Number(health?.settings?.imageDefaultDuration || 15);
+    const isDirty = defaultImageDurationInput.classList.contains("is-dirty");
+    if (!isDirty) {
+      defaultImageDurationInput.value = `${defaultDuration}`;
+      defaultImageDurationInput.dataset.initial = `${defaultDuration}`;
+    }
+  }
 }
 
 function renderProcessingMeter(queue) {
@@ -496,6 +519,30 @@ function renderPlaylist() {
     const actions = document.createElement("div");
     actions.className = "playlist-actions";
 
+    if (video.type === "image") {
+      const durationInput = document.createElement("input");
+      durationInput.type = "number";
+      durationInput.min = "1";
+      durationInput.max = "300";
+      durationInput.step = "1";
+      durationInput.className = "playlist-duration";
+      durationInput.value = `${video.displayDuration || 15}`;
+      durationInput.dataset.initial = `${video.displayDuration || 15}`;
+
+      durationInput.addEventListener("input", () => {
+        const dirty = durationInput.value !== durationInput.dataset.initial;
+        durationInput.classList.toggle("is-dirty", dirty);
+        if (dirty) {
+          pendingDurationUpdates.set(video.id, Number(durationInput.value || 15));
+        } else {
+          pendingDurationUpdates.delete(video.id);
+        }
+        updateSaveState();
+      });
+
+      actions.appendChild(durationInput);
+    }
+
     const upBtn = document.createElement("button");
     upBtn.className = "reorder-btn";
     upBtn.type = "button";
@@ -517,7 +564,7 @@ function renderPlaylist() {
 
     item.appendChild(title);
     item.appendChild(actions);
-    playlistEl.appendChild(item);
+  playlistEl.appendChild(item);
   });
 }
 
@@ -581,7 +628,7 @@ function renderLibrary() {
     const mediaType = video.type === "image" ? "Imagen" : "Video";
     const durationText =
       video.type === "image"
-        ? `Pantalla ${formatDuration(video.displayDuration || 10)}`
+        ? `Pantalla ${formatDuration(video.displayDuration || 15)}`
         : formatDuration(video.duration);
     meta.textContent = `${mediaType} | ${durationText} | ${video.width || "-"}x${video.height || "-"}`;
 
@@ -606,8 +653,8 @@ function renderLibrary() {
       durationInput.min = "1";
       durationInput.max = "300";
       durationInput.step = "1";
-      durationInput.value = `${video.displayDuration || 10}`;
-      durationInput.dataset.initial = `${video.displayDuration || 10}`;
+      durationInput.value = `${video.displayDuration || 15}`;
+      durationInput.dataset.initial = `${video.displayDuration || 15}`;
 
       durationInput.addEventListener("input", () => {
         const dirty = durationInput.value !== durationInput.dataset.initial;
@@ -796,6 +843,29 @@ async function savePendingDurations() {
   showToast("Duraciones guardadas", "success");
 }
 
+async function saveDefaultImageDuration() {
+  if (pendingDefaultImageDuration === null || !defaultImageDurationInput) return;
+  const value = Math.round(Number(pendingDefaultImageDuration));
+  if (!Number.isFinite(value) || value < 3 || value > 300) {
+    throw new Error("Duracion por defecto invalida (3-300s)");
+  }
+
+  const res = await fetch("/api/settings", {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ imageDefaultDuration: value })
+  });
+  if (!res.ok) {
+    throw new Error("No se pudo guardar duracion por defecto");
+  }
+
+  defaultImageDurationInput.value = `${value}`;
+  defaultImageDurationInput.dataset.initial = `${value}`;
+  defaultImageDurationInput.classList.remove("is-dirty");
+  pendingDefaultImageDuration = null;
+  showToast("Duracion por defecto guardada", "success");
+}
+
 async function saveAllConfiguration() {
   if (!hasPendingChanges()) {
     setStatus("No hay cambios por guardar");
@@ -809,6 +879,7 @@ async function saveAllConfiguration() {
 
   try {
     await savePendingDurations();
+    await saveDefaultImageDuration();
     await savePlaylistOrder();
     await refreshAll();
     setFeedback("Configuracion guardada", "success");
@@ -854,57 +925,17 @@ uploadForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  const submitBtn = uploadForm.querySelector("button");
-  submitBtn.disabled = true;
-  videoInput.disabled = true;
-  uploadInProgress = true;
-  setStatus("Subiendo contenido...");
-  setSystemProgress(true, 0, "Subiendo contenido", `Preparando ${files.length} archivo(s)...`);
-  let uploadFailed = false;
-
-  for (let index = 0; index < files.length; index += 1) {
-    const file = files[index];
-      const prefix = `${index + 1}/${files.length}`;
-      try {
-        await uploadFileWithProgress(file, (percent) => {
-          setSystemProgress(
-            true,
-            percent,
-            "Subiendo contenido",
-            `${prefix} ${file.name} - ${Math.round(percent)}%`
-          );
-        });
-      } catch (error) {
-      const raw = String(error.message || "");
-      let message = "Error al subir un archivo";
-      if (raw.includes("File too large")) {
-        message = "Archivo demasiado grande para la configuracion actual";
-      } else if (raw.includes("queue") || raw.includes("QUEUE")) {
-        message = "Cola de procesamiento llena, intenta en unos minutos";
-      } else if (raw.includes("Unsupported")) {
-        message = "Formato no soportado";
-      }
-      setFeedback(message, "error");
-      uploadFailed = true;
-      break;
-    }
-  }
-
-  videoInput.value = "";
-  videoInput.disabled = false;
+  enqueueUploads(files);
   selectedFiles = [];
-  uploadCount.textContent = "0 archivos";
-  submitBtn.disabled = false;
-  uploadInProgress = false;
-  await refreshAll();
-  if (!uploadFailed) {
-    setFeedback("Carga completada", "success");
-  }
+  videoInput.value = "";
 });
 
 videoInput.addEventListener("change", () => {
-  selectedFiles = Array.from(videoInput.files || []);
-  uploadCount.textContent = `${selectedFiles.length} archivos`;
+  const files = Array.from(videoInput.files || []);
+  if (!files.length) return;
+  enqueueUploads(files);
+  selectedFiles = [];
+  videoInput.value = "";
 });
 
 uploadZone.addEventListener("dragover", (event) => {
@@ -920,9 +951,88 @@ uploadZone.addEventListener("drop", (event) => {
   event.preventDefault();
   uploadZone.classList.remove("dragover");
   const dropped = Array.from(event.dataTransfer.files || []);
-  selectedFiles = dropped.filter((file) => file.name);
-  uploadCount.textContent = `${selectedFiles.length} archivos`;
+  enqueueUploads(dropped.filter((file) => file.name));
 });
+
+if (defaultImageDurationInput) {
+  defaultImageDurationInput.addEventListener("input", handleDefaultImageDurationInput);
+  defaultImageDurationInput.addEventListener("change", handleDefaultImageDurationInput);
+}
+
+if (applyDefaultDurationBtn) {
+  applyDefaultDurationBtn.addEventListener("click", async () => {
+    if (!confirm("Aplicar la duracion por defecto a todas las imagenes?")) return;
+    applyDefaultDurationBtn.disabled = true;
+    try {
+      const res = await fetch("/api/images/apply-default", { method: "POST" });
+      if (!res.ok) {
+        setFeedback("No se pudo aplicar duracion por defecto", "error");
+        return;
+      }
+      const payload = await res.json();
+      await refreshAll();
+      setFeedback(`Duracion aplicada a ${payload.updated || 0} imagen(es)`, "success");
+    } finally {
+      applyDefaultDurationBtn.disabled = false;
+    }
+  });
+}
+
+function enqueueUploads(files) {
+  const safeFiles = files.filter((file) => file && file.name);
+  if (!safeFiles.length) return;
+  uploadQueue.push(...safeFiles);
+  uploadCount.textContent = `${uploadQueue.length} en cola`;
+  setStatus(`En cola: ${uploadQueue.length}`);
+  if (!uploadInProgress) processUploadQueue();
+}
+
+async function processUploadQueue() {
+  if (!uploadQueue.length) return;
+  uploadInProgress = true;
+  const submitBtn = uploadForm.querySelector("button");
+  let uploadFailed = false;
+  const total = uploadQueue.length;
+  let index = 0;
+
+  while (uploadQueue.length) {
+    const file = uploadQueue.shift();
+    index += 1;
+    const prefix = `${index}/${total}`;
+    setSystemProgress(true, 0, "Subiendo contenido", `${file.name}`);
+    try {
+      await uploadFileWithProgress(file, (percent) => {
+        setSystemProgress(
+          true,
+          percent,
+          "Subiendo contenido",
+          `${prefix} ${file.name} - ${Math.round(percent)}%`
+        );
+      });
+    } catch (error) {
+      const raw = String(error.message || "");
+      let message = "Error al subir un archivo";
+      if (raw.includes("File too large")) {
+        message = "Archivo demasiado grande para la configuracion actual";
+      } else if (raw.includes("queue") || raw.includes("QUEUE")) {
+        message = "Cola de procesamiento llena, intenta en unos minutos";
+      } else if (raw.includes("Unsupported")) {
+        message = "Formato no soportado";
+      }
+      setFeedback(message, "error");
+      uploadFailed = true;
+      break;
+    }
+  }
+
+  uploadInProgress = false;
+  uploadCount.textContent = uploadQueue.length ? `${uploadQueue.length} en cola` : "0 archivos";
+  await refreshAll();
+  if (!uploadFailed && !uploadQueue.length) {
+    setFeedback("Carga completada", "success");
+    setSystemProgress(false, 0, "", "");
+  }
+}
 
 saveOrderBtn.addEventListener("click", () => {
   savePlaylistOrder().catch(() => {

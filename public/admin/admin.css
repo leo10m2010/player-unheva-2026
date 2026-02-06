@@ -316,6 +316,43 @@ body {
   align-items: center;
 }
 
+.config-row {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.config-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  padding: 10px 14px;
+  border-radius: 10px;
+}
+
+.config-field input {
+  width: 90px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  font-size: 14px;
+}
+
+.config-field input.is-dirty {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.config-row .inline-maintenance {
+  margin: 0;
+}
+
 #uploadForm {
   display: flex;
   flex-direction: column;
@@ -445,6 +482,19 @@ body {
 .playlist-actions {
   display: flex;
   gap: 5px;
+}
+
+.playlist-duration {
+  width: 70px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  font-size: 12px;
+}
+
+.playlist-duration.is-dirty {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 
 .reorder-btn {

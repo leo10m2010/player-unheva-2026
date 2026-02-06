@@ -36,7 +36,7 @@ class Player24x7 {
     this.errorTimer = null;
     this.infoPinned = false;
     this.imageTimer = null;
-    this.imageDuration = 10;
+    this.imageDuration = 15;
     this.imageStartedAt = 0;
     this.imageRemaining = 0;
     this.imagePlaying = false;
@@ -46,6 +46,12 @@ class Player24x7 {
     this.stallTimer = null;
     this.playAttemptId = 0;
     this.hls = null;
+    this.isTizen = this.detectTizen();
+  }
+
+  detectTizen() {
+    const ua = navigator.userAgent || "";
+    return /tizen|samsungbrowser|smart-tv|smarttv/i.test(ua);
   }
 
   async init() {
@@ -55,12 +61,16 @@ class Player24x7 {
     this.updateMuteButton();
     this.updatePlayButton();
     this.showControls();
+    if (this.isTizen) {
+      document.body.classList.add("tizen");
+    }
     await this.loadPlaylist();
     this.startPlayback();
     this.startHealthMonitor();
     this.startStatusPing();
     this.startPlaylistRefresh();
-    this.progressTicker = setInterval(() => this.updateProgress(), 250);
+    const interval = this.isTizen ? 1000 : 250;
+    this.progressTicker = setInterval(() => this.updateProgress(), interval);
   }
 
   async loadPlaylist() {
@@ -150,7 +160,7 @@ class Player24x7 {
         imageEl.hidden = false;
         imageEl.style.display = "block";
         imageEl.src = `/uploads/${media.filename}`;
-        this.imageDuration = Number(media.displayDuration || 10);
+        this.imageDuration = Number(media.displayDuration || 15);
         this.imageRemaining = this.imageDuration;
         this.imageStartedAt = Date.now();
         this.imagePlaying = true;
@@ -203,6 +213,12 @@ class Player24x7 {
   }
 
   async loadVideoSource(media) {
+    if (this.isTizen) {
+      this.destroyHls();
+      videoEl.src = `/api/videos/${media.id}/stream`;
+      videoEl.load();
+      return;
+    }
     const hlsUrl = media.hlsManifest || null;
     const canUseHls = hlsUrl && media.hlsStatus === "ready";
     if (canUseHls && window.Hls && window.Hls.isSupported()) {
@@ -512,7 +528,7 @@ class Player24x7 {
     metaParts.push(video.type === "image" ? "Imagen" : "Video");
     if (video.duration) metaParts.push(`Duracion ${this.formatTime(video.duration)}`);
     if (video.type === "image") {
-      metaParts.push(`Pantalla ${this.formatTime(video.displayDuration || 10)}`);
+      metaParts.push(`Pantalla ${this.formatTime(video.displayDuration || 15)}`);
     }
     if (video.width && video.height) metaParts.push(`${video.width}x${video.height}`);
     if (video.codec) metaParts.push(`Video ${video.codec.toUpperCase()}`);
