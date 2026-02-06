@@ -32,6 +32,12 @@ const metricLastError = document.getElementById("metricLastError");
 const metricLastUpdate = document.getElementById("metricLastUpdate");
 const defaultImageDurationInput = document.getElementById("defaultImageDurationInput");
 const applyDefaultDurationBtn = document.getElementById("applyDefaultDurationBtn");
+const photoGroupForm = document.getElementById("photoGroupForm");
+const photoGroupTitle = document.getElementById("photoGroupTitle");
+const photoGroupFooter = document.getElementById("photoGroupFooter");
+const photoGroupList = document.getElementById("photoGroupList");
+const photoAudioInput = document.getElementById("photoAudioInput");
+const removePhotoAudioBtn = document.getElementById("removePhotoAudioBtn");
 const diskMeterBar = document.getElementById("diskMeterBar");
 const processMeter = document.getElementById("processMeter");
 const processMeterFill = document.getElementById("processMeterFill");
@@ -46,6 +52,7 @@ const renameSaveBtn = document.getElementById("renameSaveBtn");
 let playlist = [];
 let selectedFiles = [];
 let libraryItems = [];
+let photoGroups = [];
 let libraryFilter = "all";
 let playlistDirty = false;
 let draggedPlaylistId = null;
@@ -274,6 +281,13 @@ async function fetchLibrary() {
   renderLibrary();
 }
 
+async function fetchPhotoGroups() {
+  if (!photoGroupList) return;
+  const res = await fetch("/api/photo-groups");
+  photoGroups = await res.json();
+  renderPhotoGroups();
+}
+
 function setPlaylistDirty(value) {
   playlistDirty = Boolean(value);
   saveOrderBtn.disabled = !playlistDirty;
@@ -467,14 +481,17 @@ function renderPlaylist() {
     return;
   }
 
+  const getEntryKey = (entry) => `${entry.type || "video"}:${entry.id}`;
+
   playlist.forEach((video, index) => {
     const item = document.createElement("div");
     item.className = "playlist-item";
     item.draggable = true;
-    item.dataset.id = video.id;
+    const entryKey = getEntryKey(video);
+    item.dataset.key = entryKey;
 
     item.addEventListener("dragstart", () => {
-      draggedPlaylistId = video.id;
+      draggedPlaylistId = entryKey;
       item.classList.add("dragging");
     });
 
@@ -498,9 +515,9 @@ function renderPlaylist() {
     item.addEventListener("drop", (event) => {
       event.preventDefault();
       item.classList.remove("drag-over");
-      if (!draggedPlaylistId || draggedPlaylistId === video.id) return;
-      const fromIndex = playlist.findIndex((entry) => entry.id === draggedPlaylistId);
-      const toIndex = playlist.findIndex((entry) => entry.id === video.id);
+      if (!draggedPlaylistId || draggedPlaylistId === entryKey) return;
+      const fromIndex = playlist.findIndex((entry) => getEntryKey(entry) === draggedPlaylistId);
+      const toIndex = playlist.findIndex((entry) => getEntryKey(entry) === entryKey);
       if (fromIndex === -1 || toIndex === -1) return;
       const next = [...playlist];
       const [moved] = next.splice(fromIndex, 1);
@@ -513,7 +530,8 @@ function renderPlaylist() {
 
     const title = document.createElement("div");
     title.className = "playlist-title";
-    const mediaType = video.type === "image" ? "Imagen" : "Video";
+    const mediaType =
+      video.type === "photoGroup" ? "Fotos" : video.type === "image" ? "Imagen" : "Video";
     title.textContent = `${index + 1}. ${video.title} (${mediaType})`;
 
     const actions = document.createElement("div");
@@ -549,7 +567,7 @@ function renderPlaylist() {
     upBtn.textContent = "↑";
     upBtn.disabled = index === 0;
     upBtn.title = "Mover arriba";
-    upBtn.addEventListener("click", () => movePlaylistById(video.id, -1));
+    upBtn.addEventListener("click", () => movePlaylistByKey(entryKey, -1));
 
     const downBtn = document.createElement("button");
     downBtn.className = "reorder-btn";
@@ -557,7 +575,7 @@ function renderPlaylist() {
     downBtn.textContent = "↓";
     downBtn.disabled = index === playlist.length - 1;
     downBtn.title = "Mover abajo";
-    downBtn.addEventListener("click", () => movePlaylistById(video.id, 1));
+    downBtn.addEventListener("click", () => movePlaylistByKey(entryKey, 1));
 
     actions.appendChild(upBtn);
     actions.appendChild(downBtn);
@@ -568,8 +586,9 @@ function renderPlaylist() {
   });
 }
 
-function movePlaylistById(id, direction) {
-  const fromIndex = playlist.findIndex((entry) => entry.id === id);
+function movePlaylistByKey(key, direction) {
+  const getEntryKey = (entry) => `${entry.type || "video"}:${entry.id}`;
+  const fromIndex = playlist.findIndex((entry) => getEntryKey(entry) === key);
   const toIndex = fromIndex + direction;
   if (fromIndex === -1 || toIndex < 0 || toIndex >= playlist.length) return;
   const next = [...playlist];
@@ -690,6 +709,110 @@ function renderLibrary() {
   });
 }
 
+function renderPhotoGroups() {
+  if (!photoGroupList) return;
+  photoGroupList.innerHTML = "";
+  if (!photoGroups.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "No hay grupos de fotos.";
+    photoGroupList.appendChild(empty);
+    return;
+  }
+
+  photoGroups.forEach((group) => {
+    const card = document.createElement("div");
+    card.className = "group-card";
+
+    const title = document.createElement("h3");
+    title.textContent = group.title;
+
+    const footer = document.createElement("p");
+    footer.textContent = group.footer ? `Pie: ${group.footer}` : "Sin pie de pagina";
+
+    const count = document.createElement("p");
+    count.textContent = `Fotos: ${(group.photos || []).length}`;
+
+    const actions = document.createElement("div");
+    actions.className = "group-actions";
+
+    const uploadInput = document.createElement("input");
+    uploadInput.type = "file";
+    uploadInput.accept = ".jpg,.jpeg,.png,.webp,.gif";
+    uploadInput.multiple = true;
+    uploadInput.addEventListener("change", async () => {
+      const files = Array.from(uploadInput.files || []);
+      if (!files.length) return;
+      await uploadPhotosToGroup(group.id, files);
+      uploadInput.value = "";
+    });
+
+    const addBtn = document.createElement("button");
+    addBtn.className = "primary";
+    addBtn.type = "button";
+    addBtn.textContent = "Agregar a playlist";
+    addBtn.addEventListener("click", () => {
+      playlist.push({
+        id: group.id,
+        type: "photoGroup",
+        title: group.title,
+        footer: group.footer,
+        photos: group.photos || []
+      });
+      renderPlaylist();
+      setPlaylistDirty(true);
+      setStatus("Orden pendiente de guardar");
+    });
+
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.textContent = "Eliminar";
+    deleteBtn.addEventListener("click", () => deletePhotoGroup(group.id));
+
+    actions.appendChild(uploadInput);
+    actions.appendChild(addBtn);
+    actions.appendChild(deleteBtn);
+
+    card.appendChild(title);
+    card.appendChild(footer);
+    card.appendChild(count);
+    card.appendChild(actions);
+    photoGroupList.appendChild(card);
+  });
+}
+
+async function uploadPhotosToGroup(groupId, files) {
+  const formData = new FormData();
+  files.forEach((file) => formData.append("photos", file));
+  const res = await fetch(`/api/photo-groups/${groupId}/photos`, {
+    method: "POST",
+    body: formData
+  });
+  if (!res.ok) {
+    setFeedback("No se pudo subir fotos", "error");
+    return;
+  }
+  await fetchPhotoGroups();
+  setFeedback("Fotos cargadas", "success");
+}
+
+async function deletePhotoGroup(groupId) {
+  showActionToast(
+    "Eliminar grupo de fotos",
+    "Eliminar",
+    async () => {
+      const res = await fetch(`/api/photo-groups/${groupId}`, { method: "DELETE" });
+      if (!res.ok) {
+        setFeedback("No se pudo eliminar grupo", "error");
+        return;
+      }
+      await fetchPhotoGroups();
+      setFeedback("Grupo eliminado", "success");
+    },
+    "error"
+  );
+}
+
 async function updateImageDuration(id, duration, inputEl) {
   const value = Math.round(Number(duration));
   if (!Number.isFinite(value) || value < 1 || value > 300) {
@@ -803,7 +926,9 @@ async function savePlaylistOrder() {
   const res = await fetch("/api/playlist", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ order: playlist.map((item) => item.id) })
+    body: JSON.stringify({
+      order: playlist.map((item) => ({ id: item.id, type: item.type || "video" }))
+    })
   });
   if (!res.ok) {
     setFeedback("No se pudo guardar el orden", "error");
@@ -978,6 +1103,58 @@ if (applyDefaultDurationBtn) {
   });
 }
 
+if (photoGroupForm) {
+  photoGroupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const title = String(photoGroupTitle?.value || "").trim();
+    const footer = String(photoGroupFooter?.value || "").trim();
+    if (!title) {
+      setFeedback("El titulo del grupo es obligatorio", "error");
+      return;
+    }
+    const res = await fetch("/api/photo-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title, footer })
+    });
+    if (!res.ok) {
+      setFeedback("No se pudo crear grupo", "error");
+      return;
+    }
+    if (photoGroupTitle) photoGroupTitle.value = "";
+    if (photoGroupFooter) photoGroupFooter.value = "";
+    await fetchPhotoGroups();
+    setFeedback("Grupo creado", "success");
+  });
+}
+
+if (photoAudioInput) {
+  photoAudioInput.addEventListener("change", async () => {
+    const file = photoAudioInput.files?.[0];
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("audio", file);
+    const res = await fetch("/api/audio/background", { method: "POST", body: formData });
+    if (!res.ok) {
+      setFeedback("No se pudo subir la musica", "error");
+    } else {
+      setFeedback("Musica actualizada", "success");
+    }
+    photoAudioInput.value = "";
+  });
+}
+
+if (removePhotoAudioBtn) {
+  removePhotoAudioBtn.addEventListener("click", async () => {
+    const res = await fetch("/api/audio/background", { method: "DELETE" });
+    if (!res.ok) {
+      setFeedback("No se pudo quitar la musica", "error");
+      return;
+    }
+    setFeedback("Musica eliminada", "success");
+  });
+}
+
 function enqueueUploads(files) {
   const safeFiles = files.filter((file) => file && file.name);
   if (!safeFiles.length) return;
@@ -1098,7 +1275,7 @@ libraryToolbar.addEventListener("click", (event) => {
 });
 
 async function refreshAll() {
-  await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats()]);
+  await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats(), fetchPhotoGroups()]);
 }
 
 refreshAll().catch(() => {

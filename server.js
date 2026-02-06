@@ -187,11 +187,25 @@ function isImageExtension(filename) {
   return [".jpg", ".jpeg", ".png", ".webp", ".gif"].includes(ext);
 }
 
+function isAudioExtension(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  return [".mp3", ".m4a", ".aac", ".ogg", ".wav"].includes(ext);
+}
+
 function detectMediaType(item) {
   if (!item) return "video";
   if (item.type === "image" || item.type === "video") return item.type;
   if (isImageExtension(item.filename || item.originalName || "")) return "image";
   return "video";
+}
+
+function normalizePlaylistEntry(entry) {
+  if (!entry) return null;
+  if (typeof entry === "string") return { type: "video", id: entry };
+  if (typeof entry === "object" && entry.id) {
+    return { type: entry.type || "video", id: entry.id };
+  }
+  return null;
 }
 
 function getHlsManifestPath(item) {
@@ -213,36 +227,63 @@ function getOrderedPlaylist(data, options = {}) {
   const defaultImageDuration = Number(
     process.env.DEFAULT_IMAGE_DURATION || data?.settings?.imageDefaultDuration || 15
   );
+  const defaultGroupDuration = Number(data?.settings?.photoGroupDuration || 30);
   const videoMap = new Map(data.videos.map((video) => [video.id, video]));
+  const groupMap = new Map((data.photoGroups || []).map((group) => [group.id, group]));
   const ordered = [];
+  const seenVideoIds = new Set();
 
   if (Array.isArray(data.playlist) && data.playlist.length) {
-    data.playlist.forEach((id) => {
-      const item = videoMap.get(id);
-      if (item) ordered.push(item);
-    });
+    data.playlist
+      .map((entry) => normalizePlaylistEntry(entry))
+      .filter(Boolean)
+      .forEach((entry) => {
+        if (entry.type === "photoGroup") {
+          const group = groupMap.get(entry.id);
+          if (group) ordered.push({ ...group, type: "photoGroup" });
+          return;
+        }
+        const item = videoMap.get(entry.id);
+        if (item) {
+          ordered.push(item);
+          seenVideoIds.add(item.id);
+        }
+      });
   }
 
   data.videos.forEach((video) => {
-    if (!ordered.find((item) => item.id === video.id)) {
+    if (!seenVideoIds.has(video.id)) {
       ordered.push(video);
     }
   });
 
   const mapped = ordered.map((item) => ({
     ...item,
-    type: detectMediaType(item),
-    hlsStatus: getHlsStatus(item),
+    type: item.type === "photoGroup" ? "photoGroup" : detectMediaType(item),
+    hlsStatus: item.type === "photoGroup" ? null : getHlsStatus(item),
     displayDuration:
-      detectMediaType(item) === "image"
-        ? Number(item.displayDuration || defaultImageDuration)
-        : null
+      item.type === "photoGroup"
+        ? Number(item.displayDuration || defaultGroupDuration)
+        : detectMediaType(item) === "image"
+          ? Number(item.displayDuration || defaultImageDuration)
+          : null,
+    photos:
+      item.type === "photoGroup"
+        ? (item.photos || []).map((photo) => ({
+            id: photo.id,
+            filename: photo.filename,
+            url: `/uploads/${photo.filename}`,
+            width: photo.width || null,
+            height: photo.height || null
+          }))
+        : undefined
   }));
 
   if (!readyOnly) return mapped;
 
   return mapped.filter((item) => {
     if (item.type === "image") return true;
+    if (item.type === "photoGroup") return (item.photos || []).length > 0;
     return item.hlsStatus === "ready";
   });
 }
@@ -367,18 +408,28 @@ app.get("/api/health", async (req, res) => {
 
 app.patch("/api/settings", async (req, res) => {
   const data = getData();
-  const { imageDefaultDuration } = req.body || {};
-  if (imageDefaultDuration === undefined) {
+  const { imageDefaultDuration, photoGroupDuration } = req.body || {};
+  if (imageDefaultDuration === undefined && photoGroupDuration === undefined) {
     return res.status(400).json({ error: "Nothing to update" });
   }
 
-  const parsed = Number(imageDefaultDuration);
-  if (!Number.isFinite(parsed) || parsed < 3 || parsed > 300) {
-    return res.status(400).json({ error: "imageDefaultDuration must be between 3 and 300" });
+  if (imageDefaultDuration !== undefined) {
+    const parsed = Number(imageDefaultDuration);
+    if (!Number.isFinite(parsed) || parsed < 3 || parsed > 300) {
+      return res.status(400).json({ error: "imageDefaultDuration must be between 3 and 300" });
+    }
+    data.settings = data.settings || {};
+    data.settings.imageDefaultDuration = Math.round(parsed);
   }
 
-  data.settings = data.settings || {};
-  data.settings.imageDefaultDuration = Math.round(parsed);
+  if (photoGroupDuration !== undefined) {
+    const parsed = Number(photoGroupDuration);
+    if (!Number.isFinite(parsed) || parsed < 5 || parsed > 300) {
+      return res.status(400).json({ error: "photoGroupDuration must be between 5 and 300" });
+    }
+    data.settings = data.settings || {};
+    data.settings.photoGroupDuration = Math.round(parsed);
+  }
   await saveData();
   res.json({ status: "ok", settings: data.settings });
 });
@@ -400,6 +451,162 @@ app.post("/api/images/apply-default", async (req, res) => {
 
   await saveData();
   res.json({ status: "ok", updated });
+});
+
+app.get("/api/photo-groups", (req, res) => {
+  const data = getData();
+  res.json(data.photoGroups || []);
+});
+
+app.post("/api/photo-groups", async (req, res) => {
+  const data = getData();
+  const { title, footer } = req.body || {};
+  const name = String(title || "").trim();
+  if (!name) {
+    return res.status(400).json({ error: "title is required" });
+  }
+
+  const group = {
+    id: uuidv4(),
+    title: name,
+    footer: String(footer || "").trim(),
+    photos: [],
+    displayDuration: Number(data?.settings?.photoGroupDuration || 30),
+    createdAt: new Date().toISOString()
+  };
+  data.photoGroups = data.photoGroups || [];
+  data.photoGroups.push(group);
+  await saveData();
+  res.json(group);
+});
+
+app.patch("/api/photo-groups/:id", async (req, res) => {
+  const data = getData();
+  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  const { title, footer, displayDuration } = req.body || {};
+
+  if (title !== undefined) {
+    const next = String(title || "").trim();
+    if (!next) return res.status(400).json({ error: "title cannot be empty" });
+    group.title = next;
+  }
+  if (footer !== undefined) group.footer = String(footer || "").trim();
+  if (displayDuration !== undefined) {
+    const parsed = Number(displayDuration);
+    if (!Number.isFinite(parsed) || parsed < 5 || parsed > 300) {
+      return res.status(400).json({ error: "displayDuration must be between 5 and 300" });
+    }
+    group.displayDuration = Math.round(parsed);
+  }
+
+  await saveData();
+  res.json(group);
+});
+
+app.delete("/api/photo-groups/:id", async (req, res) => {
+  const data = getData();
+  const index = (data.photoGroups || []).findIndex((item) => item.id === req.params.id);
+  if (index === -1) return res.status(404).json({ error: "Group not found" });
+  const [removed] = data.photoGroups.splice(index, 1);
+  if (Array.isArray(removed.photos)) {
+    for (const photo of removed.photos) {
+      try {
+        await fs.unlink(path.join(UPLOAD_DIR, photo.filename));
+      } catch (error) {
+        logger.error(`Delete group photo error: ${error.message}`);
+      }
+    }
+  }
+  await saveData();
+  res.json({ status: "ok" });
+});
+
+app.post("/api/photo-groups/:id/photos", upload.array("photos", 50), async (req, res) => {
+  const data = getData();
+  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: "No files uploaded" });
+
+  for (const file of files) {
+    if (!isImageExtension(file.originalname)) {
+      await fs.unlink(file.path);
+      continue;
+    }
+    let meta = { width: null, height: null };
+    try {
+      meta = await probeImage(file.path);
+    } catch (error) {
+      logger.warn(`Photo probe warning for ${file.originalname}: ${error.message}`);
+    }
+    group.photos.push({
+      id: uuidv4(),
+      filename: file.filename,
+      originalName: file.originalname,
+      width: meta.width,
+      height: meta.height,
+      createdAt: new Date().toISOString()
+    });
+  }
+
+  await saveData();
+  res.json({ status: "ok", count: group.photos.length });
+});
+
+app.delete("/api/photo-groups/:id/photos/:photoId", async (req, res) => {
+  const data = getData();
+  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+  if (!group) return res.status(404).json({ error: "Group not found" });
+  const index = (group.photos || []).findIndex((photo) => photo.id === req.params.photoId);
+  if (index === -1) return res.status(404).json({ error: "Photo not found" });
+  const [removed] = group.photos.splice(index, 1);
+  try {
+    await fs.unlink(path.join(UPLOAD_DIR, removed.filename));
+  } catch (error) {
+    logger.error(`Delete group photo error: ${error.message}`);
+  }
+  await saveData();
+  res.json({ status: "ok" });
+});
+
+app.get("/api/audio/background", (req, res) => {
+  const data = getData();
+  const audio = data.settings?.photoAudio || null;
+  if (!audio) return res.json({ url: null });
+  res.json({ url: `/uploads/${audio.filename}`, originalName: audio.originalName });
+});
+
+app.post("/api/audio/background", upload.single("audio"), async (req, res) => {
+  const data = getData();
+  const file = req.file;
+  if (!file) return res.status(400).json({ error: "No file uploaded" });
+  if (!isAudioExtension(file.originalname)) {
+    await fs.unlink(file.path);
+    return res.status(400).json({ error: "Unsupported audio type" });
+  }
+  data.settings = data.settings || {};
+  data.settings.photoAudio = {
+    filename: file.filename,
+    originalName: file.originalname
+  };
+  await saveData();
+  res.json({ status: "ok" });
+});
+
+app.delete("/api/audio/background", async (req, res) => {
+  const data = getData();
+  const audio = data.settings?.photoAudio;
+  if (audio?.filename) {
+    try {
+      await fs.unlink(path.join(UPLOAD_DIR, audio.filename));
+    } catch (error) {
+      logger.error(`Delete audio error: ${error.message}`);
+    }
+  }
+  if (data.settings) delete data.settings.photoAudio;
+  await saveData();
+  res.json({ status: "ok" });
 });
 
 app.get("/api/stats", (req, res) => {
@@ -434,7 +641,7 @@ app.put("/api/playlist", async (req, res) => {
   if (!Array.isArray(order)) {
     return res.status(400).json({ error: "order must be an array" });
   }
-  data.playlist = order;
+  data.playlist = order.map((entry) => normalizePlaylistEntry(entry)).filter(Boolean);
   await saveData();
   res.json({ status: "ok" });
 });

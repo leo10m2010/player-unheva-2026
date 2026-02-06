@@ -38,6 +38,55 @@ video {
   display: block;
 }
 
+#imageFrame {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000000;
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+}
+
+.photo-group {
+  position: absolute;
+  inset: 0;
+  background: #000000;
+  z-index: 1;
+  display: grid;
+  grid-template-rows: 1fr auto;
+}
+
+.collage-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 8px;
+  padding: 40px 60px 20px;
+}
+
+.collage-cell {
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
+  overflow: hidden;
+  background: #111;
+}
+
+.collage-cell img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.collage-footer {
+  padding: 10px 60px 30px;
+  color: var(--netflix-white);
+  font-size: 20px;
+  letter-spacing: 0.4px;
+  background: linear-gradient(to top, rgba(0, 0, 0, 0.8), transparent);
+}
+
 video[hidden] {
   display: none !important;
 }

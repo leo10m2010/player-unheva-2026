@@ -1,5 +1,9 @@
 const videoEl = document.getElementById("video");
 const imageEl = document.getElementById("imageFrame");
+const photoGroupEl = document.getElementById("photoGroup");
+const collageGrid = document.getElementById("collageGrid");
+const collageFooter = document.getElementById("collageFooter");
+const photoAudio = document.getElementById("photoAudio");
 const infoOverlay = document.getElementById("infoOverlay");
 const controlsOverlay = document.getElementById("controlsOverlay");
 const progressContainer = document.getElementById("progressContainer");
@@ -40,6 +44,15 @@ class Player24x7 {
     this.imageStartedAt = 0;
     this.imageRemaining = 0;
     this.imagePlaying = false;
+    this.groupTimer = null;
+    this.groupDuration = 30;
+    this.groupStartedAt = 0;
+    this.groupRemaining = 0;
+    this.groupPlaying = false;
+    this.collageTimer = null;
+    this.collageInterval = 4;
+    this.collagePhotos = [];
+    this.photoAudioUrl = null;
     this.progressTicker = null;
     this.activeMediaType = "video";
     this.lastMediaId = null;
@@ -65,12 +78,67 @@ class Player24x7 {
       document.body.classList.add("tizen");
     }
     await this.loadPlaylist();
+    await this.loadPhotoAudio();
     this.startPlayback();
     this.startHealthMonitor();
     this.startStatusPing();
     this.startPlaylistRefresh();
     const interval = this.isTizen ? 1000 : 250;
     this.progressTicker = setInterval(() => this.updateProgress(), interval);
+  }
+
+  async loadPhotoAudio() {
+    if (!photoAudio) return;
+    try {
+      const res = await fetch("/api/audio/background");
+      const payload = await res.json();
+      if (payload?.url) {
+        this.photoAudioUrl = payload.url;
+        photoAudio.src = payload.url;
+        photoAudio.loop = true;
+      }
+    } catch (error) {
+      // ignore
+    }
+  }
+
+  async startPhotoAudio() {
+    if (!photoAudio || !this.photoAudioUrl) return;
+    try {
+      photoAudio.muted = videoEl.muted;
+      await photoAudio.play();
+    } catch (error) {
+      // ignore autoplay errors
+    }
+  }
+
+  stopPhotoAudio() {
+    if (!photoAudio) return;
+    photoAudio.pause();
+  }
+
+  renderCollage() {
+    if (!collageGrid) return;
+    collageGrid.innerHTML = "";
+    if (!this.collagePhotos.length) return;
+    const total = this.collagePhotos.length;
+    const slots = Math.min(6, total);
+    const used = new Set();
+    for (let i = 0; i < slots; i += 1) {
+      let idx = Math.floor(Math.random() * total);
+      while (used.has(idx) && used.size < total) {
+        idx = Math.floor(Math.random() * total);
+      }
+      used.add(idx);
+      const photo = this.collagePhotos[idx];
+      const cell = document.createElement("div");
+      cell.className = "collage-cell";
+      const img = document.createElement("img");
+      img.src = photo.url || `/uploads/${photo.filename}`;
+      img.alt = "";
+      cell.appendChild(img);
+      collageGrid.appendChild(cell);
+    }
   }
 
   async loadPlaylist() {
@@ -124,6 +192,14 @@ class Player24x7 {
       const elapsed = (Date.now() - this.imageStartedAt) / 1000;
       return Math.min(this.imageDuration, elapsed);
     }
+    if (this.currentItemType() === "photoGroup") {
+      if (!this.groupDuration) return 0;
+      if (!this.groupPlaying) {
+        return Math.max(0, this.groupDuration - this.groupRemaining);
+      }
+      const elapsed = (Date.now() - this.groupStartedAt) / 1000;
+      return Math.min(this.groupDuration, elapsed);
+    }
     return videoEl.currentTime || 0;
   }
 
@@ -135,6 +211,21 @@ class Player24x7 {
     this.imagePlaying = false;
     this.imageStartedAt = 0;
     this.imageRemaining = 0;
+  }
+
+  clearGroupPlayback() {
+    if (this.groupTimer) {
+      clearTimeout(this.groupTimer);
+      this.groupTimer = null;
+    }
+    if (this.collageTimer) {
+      clearInterval(this.collageTimer);
+      this.collageTimer = null;
+    }
+    this.groupPlaying = false;
+    this.groupStartedAt = 0;
+    this.groupRemaining = 0;
+    this.collagePhotos = [];
   }
 
   async playVideo(index) {
@@ -150,7 +241,12 @@ class Player24x7 {
     this.playAttemptId += 1;
     const attemptId = this.playAttemptId;
     this.clearImagePlayback();
-    this.activeMediaType = (media.type || "video") === "image" ? "image" : "video";
+    this.clearGroupPlayback();
+    if (media.type === "photoGroup") {
+      this.activeMediaType = "photoGroup";
+    } else {
+      this.activeMediaType = (media.type || "video") === "image" ? "image" : "video";
+    }
 
     try {
       if ((media.type || "video") === "image") {
@@ -159,24 +255,47 @@ class Player24x7 {
         videoEl.style.display = "none";
         imageEl.hidden = false;
         imageEl.style.display = "block";
+        if (photoGroupEl) photoGroupEl.hidden = true;
         imageEl.src = `/uploads/${media.filename}`;
         this.imageDuration = Number(media.displayDuration || 15);
         this.imageRemaining = this.imageDuration;
         this.imageStartedAt = Date.now();
         this.imagePlaying = true;
         this.imageTimer = setTimeout(() => this.playNext(), this.imageDuration * 1000);
+        this.stopPhotoAudio();
+      } else if (media.type === "photoGroup") {
+        this.resetVideoElement();
+        videoEl.hidden = true;
+        videoEl.style.display = "none";
+        imageEl.hidden = true;
+        imageEl.style.display = "none";
+        if (photoGroupEl) photoGroupEl.hidden = false;
+        this.groupDuration = Number(media.displayDuration || 30);
+        this.groupRemaining = this.groupDuration;
+        this.groupStartedAt = Date.now();
+        this.groupPlaying = true;
+        this.collagePhotos = Array.isArray(media.photos) ? media.photos : [];
+        this.renderCollage();
+        this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        this.groupTimer = setTimeout(() => this.playNext(), this.groupDuration * 1000);
+        if (collageFooter) {
+          collageFooter.textContent = media.footer || "";
+        }
+        await this.startPhotoAudio();
       } else {
         imageEl.hidden = true;
         imageEl.style.display = "none";
+        if (photoGroupEl) photoGroupEl.hidden = true;
         videoEl.hidden = false;
         videoEl.style.display = "block";
         this.resetVideoElement();
         await this.loadVideoSource(media);
         this.startStallGuard(attemptId);
         await this.attemptAutoplay();
+        this.stopPhotoAudio();
       }
 
-      this.updateInfo(media);
+       this.updateInfo(media);
       if (!this.infoPinned) {
         infoOverlay.classList.remove("visible");
       }
@@ -481,6 +600,29 @@ class Player24x7 {
       return;
     }
 
+    if (this.currentItemType() === "photoGroup") {
+      if (this.groupPlaying) {
+        const elapsed = (Date.now() - this.groupStartedAt) / 1000;
+        this.groupRemaining = Math.max(0, this.groupDuration - elapsed);
+        if (this.groupTimer) clearTimeout(this.groupTimer);
+        this.groupTimer = null;
+        if (this.collageTimer) clearInterval(this.collageTimer);
+        this.collageTimer = null;
+        this.groupPlaying = false;
+        this.userPaused = true;
+        this.stopPhotoAudio();
+      } else {
+        this.groupStartedAt = Date.now() - (this.groupDuration - this.groupRemaining) * 1000;
+        this.groupTimer = setTimeout(() => this.playNext(), this.groupRemaining * 1000);
+        this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        this.groupPlaying = true;
+        this.userPaused = false;
+        this.startPhotoAudio();
+      }
+      this.updatePlayButton();
+      return;
+    }
+
     if (videoEl.paused) {
       videoEl.play();
       this.userPaused = false;
@@ -494,6 +636,7 @@ class Player24x7 {
   toggleMute() {
     if (this.currentItemType() === "image") return;
     videoEl.muted = !videoEl.muted;
+    if (photoAudio) photoAudio.muted = videoEl.muted;
     this.updateMuteButton();
     if (!videoEl.muted) this.hideUnmuteOverlay();
   }
@@ -503,6 +646,10 @@ class Player24x7 {
     try {
       videoEl.muted = false;
       videoEl.volume = 1;
+      if (photoAudio) {
+        photoAudio.muted = false;
+        photoAudio.volume = 1;
+      }
       await videoEl.play();
       this.hideUnmuteOverlay();
     } catch (error) {
@@ -512,7 +659,12 @@ class Player24x7 {
   }
 
   updatePlayButton() {
-    const isPlaying = this.currentItemType() === "image" ? this.imagePlaying : !videoEl.paused;
+    const isPlaying =
+      this.currentItemType() === "image"
+        ? this.imagePlaying
+        : this.currentItemType() === "photoGroup"
+          ? this.groupPlaying
+          : !videoEl.paused;
     playBtn.classList.toggle("is-playing", isPlaying);
     playBtn.classList.toggle("is-paused", !isPlaying);
   }
@@ -525,10 +677,17 @@ class Player24x7 {
     videoTitle.textContent = video.title;
     videoPosition.textContent = `${this.currentIndex + 1} / ${this.playlist.length}`;
     const metaParts = [];
-    metaParts.push(video.type === "image" ? "Imagen" : "Video");
+    metaParts.push(
+      video.type === "photoGroup" ? "Fotos" : video.type === "image" ? "Imagen" : "Video"
+    );
     if (video.duration) metaParts.push(`Duracion ${this.formatTime(video.duration)}`);
     if (video.type === "image") {
       metaParts.push(`Pantalla ${this.formatTime(video.displayDuration || 15)}`);
+    }
+    if (video.type === "photoGroup") {
+      metaParts.push(`Bloque ${this.formatTime(video.displayDuration || 30)}`);
+      if (Array.isArray(video.photos)) metaParts.push(`Fotos ${video.photos.length}`);
+      if (video.footer) metaParts.push(`Pie ${video.footer}`);
     }
     if (video.width && video.height) metaParts.push(`${video.width}x${video.height}`);
     if (video.codec) metaParts.push(`Video ${video.codec.toUpperCase()}`);
@@ -540,6 +699,15 @@ class Player24x7 {
   updateProgress() {
     if (this.currentItemType() === "image") {
       const total = this.imageDuration || 0;
+      if (!total) return;
+      const elapsed = this.getCurrentMediaTime();
+      const progress = (elapsed / total) * 100;
+      progressBar.style.width = `${progress}%`;
+      timeDisplay.textContent = `${this.formatTime(elapsed)} / ${this.formatTime(total)}`;
+      return;
+    }
+    if (this.currentItemType() === "photoGroup") {
+      const total = this.groupDuration || 0;
       if (!total) return;
       const elapsed = this.getCurrentMediaTime();
       const progress = (elapsed / total) * 100;

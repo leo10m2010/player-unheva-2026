@@ -10,6 +10,10 @@
     <div class="player-container" id="player">
       <video id="video" playsinline></video>
       <img id="imageFrame" alt="" hidden />
+      <div class="photo-group" id="photoGroup" hidden>
+        <div class="collage-grid" id="collageGrid"></div>
+        <div class="collage-footer" id="collageFooter"></div>
+      </div>
 
       <div class="video-info-overlay" id="infoOverlay">
         <div class="video-title" id="videoTitle">Cargando...</div>
@@ -88,6 +92,7 @@
       </div>
     </div>
 
+    <audio id="photoAudio" loop></audio>
     <script src="/vendor/hls/hls.min.js"></script>
     <script src="/player/player.js?v=7"></script>
   </body>
