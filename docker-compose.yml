@@ -1,0 +1,34 @@
+services:
+  web:
+    build: .
+    ports:
+      - "8090:3000"
+    volumes:
+      - ./uploads:/app/uploads
+      - ./thumbnails:/app/thumbnails
+      - ./hls:/app/hls
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=production
+      - MAX_FILE_SIZE=4294967296
+      - TRANSCODE_CONCURRENCY=1
+      - MAX_TRANSCODE_QUEUE=25
+      - REQUEST_TIMEOUT_MS=0
+      - KEEP_ALIVE_TIMEOUT_MS=65000
+      - HEADERS_TIMEOUT_MS=66000
+      - SHUTDOWN_TIMEOUT_MS=15000
+      - PORT=3000
+      - LOG_LEVEL=info
+    restart: always
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

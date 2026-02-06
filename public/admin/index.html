@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin - Videos 24/7</title>
+    <link rel="stylesheet" href="/admin/admin.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div>
+        <h1>Panel de administracion</h1>
+        <p class="topbar-sub">Biblioteca local 24/7 con control total.</p>
+      </div>
+      <div class="topbar-right">
+        <button id="tvModeBtn" class="save-config-btn ghost" type="button">Modo TV</button>
+        <button id="saveConfigBtn" class="save-config-btn" type="button">Guardar configuracion</button>
+        <div class="disk-state ok" id="topDiskState">Disco OK</div>
+        <div class="save-state is-saved" id="saveState">Sin cambios</div>
+        <div class="status" id="status">Listo</div>
+      </div>
+    </header>
+
+    <main class="layout">
+      <section class="card control-center full">
+        <div class="control-head">
+          <div>
+            <h2>Centro de control</h2>
+            <p class="help">Salud del sistema y reproduccion en vivo.</p>
+          </div>
+          <div class="status-pill" id="liveState">Sin conexion</div>
+        </div>
+
+        <div class="metrics" id="metricsGrid">
+          <article class="metric-card">
+            <span class="metric-label">Video actual</span>
+            <strong class="metric-value" id="metricCurrentVideo">-</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Videos en playlist</span>
+            <strong class="metric-value" id="metricPlaylistSize">0</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Uptime</span>
+            <strong class="metric-value" id="metricUptime">0m</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Errores 24h</span>
+            <strong class="metric-value" id="metricErrors">0</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Videos reproducidos</span>
+            <strong class="metric-value" id="metricPlayed">0</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Promedio duracion</span>
+            <strong class="metric-value" id="metricAvg">-</strong>
+          </article>
+          <article class="metric-card">
+            <span class="metric-label">Almacenamiento</span>
+            <strong class="metric-value" id="metricStorage">-</strong>
+          </article>
+        </div>
+
+        <div class="disk-meter" aria-label="Uso de almacenamiento">
+          <div class="disk-meter-bar" id="diskMeterBar"></div>
+        </div>
+
+        <div class="process-meter" id="processMeter" hidden>
+          <div class="process-meter-head">
+            <span id="processStateText">Procesando...</span>
+            <strong id="processPercent">0%</strong>
+          </div>
+          <div class="process-meter-track">
+            <div class="process-meter-fill" id="processMeterFill"></div>
+          </div>
+          <div class="process-meter-meta" id="processMeta">0/0 completado</div>
+        </div>
+
+        <div class="meta-row">
+          <span id="metricPlayerState">Estado player: -</span>
+          <span id="metricDiskFree">Libre: -</span>
+          <span id="metricQueueState">Cola: -</span>
+          <span id="metricUploadEstimate">Carga maxima aprox: -</span>
+          <span id="metricLastError">Sin errores recientes</span>
+          <span id="metricLastUpdate">Actualizacion pendiente</span>
+          <button id="cleanupThumbsBtn" class="inline-maintenance" type="button">Limpiar thumbnails huerfanos</button>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2>Subir contenido</h2>
+        <p class="help">Formatos soportados: MP4, WebM, MKV, JPG, PNG, WEBP, GIF</p>
+        <form id="uploadForm">
+          <div class="upload-zone" id="uploadZone">
+            <div class="upload-title">Arrastra y suelta tu contenido</div>
+            <div class="upload-subtitle">videos e imagenes desde tu equipo</div>
+            <input class="file-native" type="file" id="videoInput" name="video" accept=".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif" multiple />
+          </div>
+          <div class="upload-footer">
+            <div class="upload-count" id="uploadCount">0 archivos</div>
+            <button type="submit">Subir</button>
+          </div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Playlist</h2>
+        <p class="help">Arrastra para ordenar. En movil usa los botones de posicion. Guarda al terminar.</p>
+        <div class="playlist-toolbar">
+          <span class="playlist-hint">Drag and drop activo</span>
+          <button id="saveOrderBtn" type="button" disabled>Guardar orden</button>
+        </div>
+        <div id="playlist" class="playlist"></div>
+      </section>
+
+      <section class="card full">
+        <h2>Biblioteca</h2>
+        <div class="library-toolbar" id="libraryToolbar">
+          <button class="filter-btn is-active" type="button" data-filter="all">Todo <span id="countAll">0</span></button>
+          <button class="filter-btn" type="button" data-filter="video">Videos <span id="countVideo">0</span></button>
+          <button class="filter-btn" type="button" data-filter="image">Imagenes <span id="countImage">0</span></button>
+        </div>
+        <div id="library" class="library"></div>
+      </section>
+    </main>
+
+    <div id="toastHost" class="toast-host" aria-live="polite" aria-atomic="true"></div>
+
+    <div id="renameModal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="renameTitle">
+        <h3 id="renameTitle">Renombrar elemento</h3>
+        <input id="renameInput" type="text" maxlength="180" placeholder="Nuevo nombre" />
+        <div class="modal-actions">
+          <button id="renameCancelBtn" type="button" class="secondary">Cancelar</button>
+          <button id="renameSaveBtn" type="button">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/admin/admin.js"></script>
+  </body>
+</html>
