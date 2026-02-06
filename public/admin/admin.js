@@ -16,6 +16,7 @@ const toastHost = document.getElementById("toastHost");
 const countAll = document.getElementById("countAll");
 const countVideo = document.getElementById("countVideo");
 const countImage = document.getElementById("countImage");
+const countGroup = document.getElementById("countGroup");
 const liveState = document.getElementById("liveState");
 const metricCurrentVideo = document.getElementById("metricCurrentVideo");
 const metricPlaylistSize = document.getElementById("metricPlaylistSize");
@@ -56,6 +57,7 @@ let photoGroups = [];
 let libraryFilter = "all";
 let playlistDirty = false;
 let draggedPlaylistId = null;
+let draggedLibraryEntry = null;
 const pendingDurationUpdates = new Map();
 let lastDiskAlertLevel = "ok";
 let uploadInProgress = false;
@@ -561,6 +563,17 @@ function renderPlaylist() {
       actions.appendChild(durationInput);
     }
 
+    const removeBtn = document.createElement("button");
+    removeBtn.type = "button";
+    removeBtn.textContent = "Quitar";
+    removeBtn.addEventListener("click", () => {
+      playlist = playlist.filter((entry) => getEntryKey(entry) !== entryKey);
+      renderPlaylist();
+      setPlaylistDirty(true);
+      setStatus("Orden pendiente de guardar");
+    });
+    actions.appendChild(removeBtn);
+
     const upBtn = document.createElement("button");
     upBtn.className = "reorder-btn";
     upBtn.type = "button";
@@ -582,9 +595,37 @@ function renderPlaylist() {
 
     item.appendChild(title);
     item.appendChild(actions);
-  playlistEl.appendChild(item);
+playlistEl.appendChild(item);
   });
 }
+
+playlistEl.addEventListener("dragover", (event) => {
+  if (!draggedLibraryEntry) return;
+  event.preventDefault();
+  playlistEl.classList.add("drag-over");
+});
+
+playlistEl.addEventListener("dragleave", () => {
+  playlistEl.classList.remove("drag-over");
+});
+
+playlistEl.addEventListener("drop", () => {
+  playlistEl.classList.remove("drag-over");
+  if (!draggedLibraryEntry) return;
+  const exists = playlist.some(
+    (entry) => entry.type === draggedLibraryEntry.type && entry.id === draggedLibraryEntry.id
+  );
+  if (!exists) {
+    playlist.push({
+      id: draggedLibraryEntry.id,
+      type: draggedLibraryEntry.type
+    });
+    renderPlaylist();
+    setPlaylistDirty(true);
+    setStatus("Orden pendiente de guardar");
+  }
+  draggedLibraryEntry = null;
+});
 
 function movePlaylistByKey(key, direction) {
   const getEntryKey = (entry) => `${entry.type || "video"}:${entry.id}`;
@@ -601,17 +642,24 @@ function movePlaylistByKey(key, direction) {
 }
 
 function getFilteredLibraryItems() {
-  if (libraryFilter === "all") return libraryItems;
-  return libraryItems.filter((item) => (item.type || "video") === libraryFilter);
+  const allItems = [
+    ...libraryItems,
+    ...photoGroups.map((group) => ({ ...group, type: "photoGroup" }))
+  ];
+  if (libraryFilter === "all") return allItems;
+  if (libraryFilter === "group") return allItems.filter((item) => item.type === "photoGroup");
+  return allItems.filter((item) => (item.type || "video") === libraryFilter);
 }
 
 function updateFilterCounts() {
-  const total = libraryItems.length;
+  const total = libraryItems.length + photoGroups.length;
   const videos = libraryItems.filter((item) => (item.type || "video") === "video").length;
   const images = libraryItems.filter((item) => (item.type || "video") === "image").length;
+  const groups = photoGroups.length;
   countAll.textContent = `${total}`;
   countVideo.textContent = `${videos}`;
   countImage.textContent = `${images}`;
+  if (countGroup) countGroup.textContent = `${groups}`;
 }
 
 function renderLibrary() {
@@ -627,8 +675,96 @@ function renderLibrary() {
   }
 
   videos.forEach((video) => {
+    if (video.type === "photoGroup") {
+      const card = document.createElement("div");
+      card.className = "video-card";
+      card.draggable = true;
+      card.addEventListener("dragstart", () => {
+        draggedLibraryEntry = { id: video.id, type: "photoGroup" };
+        card.classList.add("dragging");
+      });
+      card.addEventListener("dragend", () => {
+        draggedLibraryEntry = null;
+        card.classList.remove("dragging");
+      });
+
+      const info = document.createElement("div");
+      info.className = "video-info";
+
+      const title = document.createElement("div");
+      title.className = "video-title";
+      title.textContent = video.title;
+
+      const meta = document.createElement("div");
+      meta.className = "video-meta";
+      meta.textContent = `Grupo de fotos | ${video.photos?.length || 0} fotos | ${video.displayDuration || 30}s`;
+
+      const thumbGrid = document.createElement("div");
+      thumbGrid.className = "group-photos";
+      (video.photos || []).slice(0, 4).forEach((photo) => {
+        const thumb = document.createElement("div");
+        thumb.className = "group-thumb";
+        const img = document.createElement("img");
+        img.src = `/uploads/${photo.filename}`;
+        img.alt = "";
+        thumb.appendChild(img);
+        thumbGrid.appendChild(thumb);
+      });
+
+      const actions = document.createElement("div");
+      actions.className = "video-actions";
+
+      const toggleBtn = document.createElement("button");
+      toggleBtn.type = "button";
+      const inPlaylist = playlist.some(
+        (entry) => entry.type === "photoGroup" && entry.id === video.id
+      );
+      toggleBtn.textContent = inPlaylist ? "Quitar de playlist" : "Agregar a playlist";
+      toggleBtn.addEventListener("click", () => {
+        if (inPlaylist) {
+          playlist = playlist.filter((entry) => !(entry.type === "photoGroup" && entry.id === video.id));
+        } else {
+          playlist.push({
+            id: video.id,
+            type: "photoGroup",
+            title: video.title,
+            footer: video.footer,
+            photos: video.photos || [],
+            displayDuration: video.displayDuration
+          });
+        }
+        renderPlaylist();
+        setPlaylistDirty(true);
+        setStatus("Orden pendiente de guardar");
+        renderLibrary();
+      });
+      actions.appendChild(toggleBtn);
+
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.textContent = "Eliminar";
+      deleteBtn.addEventListener("click", () => deletePhotoGroup(video.id));
+      actions.appendChild(deleteBtn);
+
+      info.appendChild(title);
+      info.appendChild(meta);
+      info.appendChild(thumbGrid);
+      info.appendChild(actions);
+      card.appendChild(info);
+      libraryEl.appendChild(card);
+      return;
+    }
     const card = document.createElement("div");
     card.className = "video-card";
+    card.draggable = true;
+    card.addEventListener("dragstart", () => {
+      draggedLibraryEntry = { id: video.id, type: video.type || "video" };
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", () => {
+      draggedLibraryEntry = null;
+      card.classList.remove("dragging");
+    });
 
     const img = document.createElement("img");
     img.src = video.thumbnail || "";
@@ -733,6 +869,29 @@ function renderPhotoGroups() {
     const count = document.createElement("p");
     count.textContent = `Fotos: ${(group.photos || []).length}`;
 
+    const durationRow = document.createElement("div");
+    durationRow.className = "group-row";
+    const durationLabel = document.createElement("span");
+    durationLabel.textContent = "Duracion (seg)";
+    const durationInput = document.createElement("input");
+    durationInput.type = "number";
+    durationInput.min = "5";
+    durationInput.max = "300";
+    durationInput.step = "1";
+    durationInput.value = `${group.displayDuration || 30}`;
+    durationRow.appendChild(durationLabel);
+    durationRow.appendChild(durationInput);
+
+    const footerInput = document.createElement("input");
+    footerInput.type = "text";
+    footerInput.value = group.footer || "";
+    footerInput.placeholder = "Pie de pagina";
+
+    const titleInput = document.createElement("input");
+    titleInput.type = "text";
+    titleInput.value = group.title || "";
+    titleInput.placeholder = "Titulo";
+
     const actions = document.createElement("div");
     actions.className = "group-actions";
 
@@ -747,21 +906,77 @@ function renderPhotoGroups() {
       uploadInput.value = "";
     });
 
+    const photoGrid = document.createElement("div");
+    photoGrid.className = "group-photos";
+    (group.photos || []).slice(0, 6).forEach((photo) => {
+      const thumb = document.createElement("div");
+      thumb.className = "group-thumb";
+      const img = document.createElement("img");
+      img.src = `/uploads/${photo.filename}`;
+      img.alt = "";
+      thumb.appendChild(img);
+      const del = document.createElement("button");
+      del.type = "button";
+      del.textContent = "x";
+      del.addEventListener("click", async () => {
+        const res = await fetch(`/api/photo-groups/${group.id}/photos/${photo.id}`, {
+          method: "DELETE"
+        });
+        if (!res.ok) {
+          setFeedback("No se pudo eliminar foto", "error");
+          return;
+        }
+        await fetchPhotoGroups();
+      });
+      thumb.appendChild(del);
+      photoGrid.appendChild(thumb);
+    });
+
+    const inPlaylist = playlist.some(
+      (entry) => entry.type === "photoGroup" && entry.id === group.id
+    );
     const addBtn = document.createElement("button");
     addBtn.className = "primary";
     addBtn.type = "button";
-    addBtn.textContent = "Agregar a playlist";
+    addBtn.textContent = inPlaylist ? "Quitar de playlist" : "Agregar a playlist";
     addBtn.addEventListener("click", () => {
-      playlist.push({
-        id: group.id,
-        type: "photoGroup",
-        title: group.title,
-        footer: group.footer,
-        photos: group.photos || []
-      });
+      if (inPlaylist) {
+        playlist = playlist.filter((entry) => !(entry.type === "photoGroup" && entry.id === group.id));
+      } else {
+        playlist.push({
+          id: group.id,
+          type: "photoGroup",
+          title: group.title,
+          footer: group.footer,
+          photos: group.photos || [],
+          displayDuration: group.displayDuration
+        });
+      }
       renderPlaylist();
       setPlaylistDirty(true);
       setStatus("Orden pendiente de guardar");
+      renderPhotoGroups();
+    });
+
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "Guardar";
+    saveBtn.addEventListener("click", async () => {
+      const res = await fetch(`/api/photo-groups/${group.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          title: titleInput.value.trim(),
+          footer: footerInput.value.trim(),
+          displayDuration: Number(durationInput.value || 30)
+        })
+      });
+      if (!res.ok) {
+        setFeedback("No se pudo guardar grupo", "error");
+        return;
+      }
+      await fetchPhotoGroups();
+      setFeedback("Grupo actualizado", "success");
     });
 
     const deleteBtn = document.createElement("button");
@@ -771,11 +986,16 @@ function renderPhotoGroups() {
 
     actions.appendChild(uploadInput);
     actions.appendChild(addBtn);
+    actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
 
     card.appendChild(title);
+    card.appendChild(titleInput);
     card.appendChild(footer);
+    card.appendChild(footerInput);
+    card.appendChild(durationRow);
     card.appendChild(count);
+    card.appendChild(photoGrid);
     card.appendChild(actions);
     photoGroupList.appendChild(card);
   });

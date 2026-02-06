@@ -509,6 +509,11 @@ app.delete("/api/photo-groups/:id", async (req, res) => {
   const index = (data.photoGroups || []).findIndex((item) => item.id === req.params.id);
   if (index === -1) return res.status(404).json({ error: "Group not found" });
   const [removed] = data.photoGroups.splice(index, 1);
+  data.playlist = (data.playlist || []).filter((entry) => {
+    const normalized = normalizePlaylistEntry(entry);
+    if (!normalized) return false;
+    return !(normalized.type === "photoGroup" && normalized.id === removed.id);
+  });
   if (Array.isArray(removed.photos)) {
     for (const photo of removed.photos) {
       try {
