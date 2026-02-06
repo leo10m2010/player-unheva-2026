@@ -4,3 +4,7 @@ thumbnails
 data
 logs
 .env
+.claude/
+.agent/
+.agents/
+
