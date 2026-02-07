@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Player 24/7</title>
-    <link rel="stylesheet" href="/player/player.css?v=5" />
+    <link rel="stylesheet" href="/player/player.css?v=6" />
   </head>
   <body>
     <div class="player-container" id="player">
@@ -65,6 +65,7 @@
               <path fill-rule="evenodd" clip-rule="evenodd" d="M28 16C28 22.6274 22.6274 28 16 28C9.37258 28 4 22.6274 4 16C4 9.37258 9.37258 4 16 4C22.6274 4 28 9.37258 28 16ZM24.9333 16C24.9333 20.9337 20.9337 24.9333 16 24.9333C11.0663 24.9333 7.06667 20.9337 7.06667 16C7.06667 11.0663 11.0663 7.06667 16 7.06667C20.9337 7.06667 24.9333 11.0663 24.9333 16Z" fill="currentColor"/>
             </svg>
           </button>
+          <button class="control-btn icon-btn" id="themeBtn" aria-label="Tema">Tema</button>
           <div class="time-display" id="timeDisplay">0:00 / 0:00</div>
         </div>
       </div>
@@ -90,10 +91,19 @@
       <div class="error-overlay" id="errorOverlay" hidden>
         <div class="message">Error en el video. Reintentando...</div>
       </div>
+
+      <div class="pairing-overlay" id="pairingOverlay" hidden>
+        <div class="panel">
+          <div class="title">Vincular TV</div>
+          <div class="message">En el panel Admin, abre Vincular TV y escribe este codigo:</div>
+          <div class="pair-code" id="pairCode">------</div>
+          <div class="hint" id="pairHint">Esperando aprobacion...</div>
+        </div>
+      </div>
     </div>
 
     <audio id="photoAudio" loop></audio>
     <script src="/vendor/hls/hls.min.js"></script>
-    <script src="/player/player.js?v=7"></script>
+    <script src="/player/player.js?v=9"></script>
   </body>
 </html>

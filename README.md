@@ -11,11 +11,11 @@ docker compose up -d --build
 - Admin: `http://localhost:8090/admin`
 - Player: `http://localhost:8090/player`
 
-Si activas token para telemetria del player, abre una vez:
+Si activas token para telemetria del player en TV:
 
-- `http://localhost:8090/player?playerToken=TU_PLAYER_TOKEN`
-
-El reproductor guarda el token en `localStorage` y luego sigue funcionando con `/player` normal.
+1. Abre `http://localhost:8090/player` en la TV (mostrara un codigo de 6 digitos).
+2. En Admin, usa el boton `Vincular TV` e ingresa ese codigo.
+3. El player guarda el token localmente y continua normal.
 
 ## Formatos soportados
 
@@ -101,7 +101,7 @@ Respuesta ejemplo:
 - `MEDIA_TERM_GRACE_MS=3000` (gracia antes de forzar `SIGKILL`)
 - `LOG_TO_FILES=false` (en Docker se recomienda log por stdout)
 - `LOG_FILE_MAX_SIZE=10485760` y `LOG_FILE_MAX_FILES=5` (si activas logs en archivo)
-- `REQUEST_TIMEOUT_MS=0`
+- `REQUEST_TIMEOUT_MS=300000`
 - `KEEP_ALIVE_TIMEOUT_MS=65000`
 - `HEADERS_TIMEOUT_MS=66000`
 - `SHUTDOWN_TIMEOUT_MS=15000`

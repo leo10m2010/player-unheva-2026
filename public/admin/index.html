@@ -13,11 +13,18 @@
         <p class="topbar-sub">Biblioteca local 24/7 con control total.</p>
       </div>
       <div class="topbar-right">
-        <button id="tvModeBtn" class="save-config-btn ghost" type="button">Modo TV</button>
-        <button id="saveConfigBtn" class="save-config-btn" type="button">Guardar configuracion</button>
-        <div class="disk-state ok" id="topDiskState">Disco OK</div>
-        <div class="save-state is-saved" id="saveState" aria-live="polite">Sin cambios</div>
-        <div class="status" id="status" aria-live="polite">Listo</div>
+        <div class="topbar-actions">
+          <button id="tvModeBtn" class="save-config-btn ghost" type="button">Modo TV</button>
+          <button id="themeModeBtn" class="save-config-btn ghost" type="button">Tema AUTO</button>
+          <button id="pairTvBtn" class="save-config-btn ghost" type="button">Vincular TV</button>
+          <button id="authTokenBtn" class="save-config-btn ghost" type="button">Token</button>
+          <button id="saveConfigBtn" class="save-config-btn" type="button">Guardar configuracion</button>
+        </div>
+        <div class="topbar-meta">
+          <div class="disk-state ok" id="topDiskState">Disco OK</div>
+          <div class="save-state is-saved" id="saveState" aria-live="polite">Sin cambios</div>
+          <div class="status" id="status" aria-live="polite">Listo</div>
+        </div>
       </div>
     </header>
 
@@ -162,11 +169,27 @@
               <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
             </div>
             <div class="group-audio">
-              <label class="file-label">
-                Musica global para fotos
-                <input id="photoAudioInput" class="file-native" type="file" accept=".mp3,.m4a,.aac,.ogg,.wav" />
-              </label>
-              <button id="removePhotoAudioBtn" type="button" class="secondary">Quitar musica</button>
+              <div class="group-audio-copy">
+                <div class="group-audio-title">Musica para TODOS los grupos de fotos</div>
+                <p class="help">Se aplica a cualquier grupo que este en playlist.</p>
+                <div id="photoAudioStatus" class="group-audio-status">Sin musica configurada</div>
+                <div id="photoAudioName" class="group-audio-name"></div>
+              </div>
+              <div class="group-audio-actions">
+                <input
+                  id="photoAudioInput"
+                  class="file-native"
+                  type="file"
+                  accept=".mp3,.m4a,.aac,.ogg,.wav"
+                  hidden
+                />
+                <button id="selectPhotoAudioBtn" type="button" class="save-config-btn primary">
+                  Seleccionar y subir
+                </button>
+                <button id="removePhotoAudioBtn" type="button" class="save-config-btn danger" disabled>
+                  Quitar musica
+                </button>
+              </div>
             </div>
           </div>
           <form id="photoGroupForm" class="group-form">
@@ -189,6 +212,34 @@
         <div class="modal-actions">
           <button id="renameCancelBtn" type="button" class="secondary">Cancelar</button>
           <button id="renameSaveBtn" type="button">Guardar</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="photoPreviewModal" class="modal photo-preview-modal" hidden>
+      <div class="photo-preview-card" role="dialog" aria-modal="true" aria-labelledby="photoPreviewTitle">
+        <div class="photo-preview-head">
+          <strong id="photoPreviewTitle">Vista de foto</strong>
+          <button id="photoPreviewCloseBtn" type="button" class="save-config-btn">Cerrar</button>
+        </div>
+        <div class="photo-preview-stage">
+          <button
+            id="photoPreviewPrevBtn"
+            type="button"
+            class="photo-nav-btn photo-nav-prev"
+            aria-label="Foto anterior"
+          >
+            &lsaquo;
+          </button>
+          <img id="photoPreviewImage" alt="Vista ampliada" />
+          <button
+            id="photoPreviewNextBtn"
+            type="button"
+            class="photo-nav-btn photo-nav-next"
+            aria-label="Foto siguiente"
+          >
+            &rsaquo;
+          </button>
         </div>
       </div>
     </div>

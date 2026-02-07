@@ -69,6 +69,9 @@ const playerStatus = {
   lastUpdate: null
 };
 
+const PLAYER_PAIR_TTL_MS = Math.max(60_000, Number(process.env.PLAYER_PAIR_TTL_MS || 10 * 60 * 1000));
+const playerPairSessions = new Map();
+
 const TRANSCODE_CONCURRENCY = Math.max(1, Number(process.env.TRANSCODE_CONCURRENCY || 1));
 const MAX_TRANSCODE_QUEUE = Math.max(1, Number(process.env.MAX_TRANSCODE_QUEUE || 25));
 
@@ -508,14 +511,51 @@ function extractPlayerToken(req) {
   return "";
 }
 
+function requireAdminAuth(req, res, next) {
+  if (!ADMIN_TOKEN) return next();
+  const token = extractAdminToken(req);
+  if (token !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  return next();
+}
+
+function prunePairSessions() {
+  const now = Date.now();
+  for (const [code, session] of playerPairSessions.entries()) {
+    if (session.expiresAt <= now) {
+      playerPairSessions.delete(code);
+    }
+  }
+}
+
+function generatePairCode() {
+  for (let attempt = 0; attempt < 12; attempt += 1) {
+    const code = `${Math.floor(100000 + Math.random() * 900000)}`;
+    if (!playerPairSessions.has(code)) return code;
+  }
+  return `${Date.now()}`.slice(-6);
+}
+
 app.use("/api", (req, res, next) => {
+  const isReadMethod = ["GET", "HEAD", "OPTIONS"].includes(req.method);
+  if (isReadMethod) {
+    const adminReadPaths = new Set(["/videos", "/photo-groups", "/stats", "/stats/errors"]);
+    if (adminReadPaths.has(req.path)) {
+      return requireAdminAuth(req, res, next);
+    }
+    return next();
+  }
+
   const isWriteMethod = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   if (!isWriteMethod) return next();
 
+  const isPlayerPairPublic = req.path === "/player/pair/start" || req.path === "/player/pair/status";
+  if (isPlayerPairPublic) return next();
+
   const isPlayerWrite = req.path === "/player/status" || req.path === "/player/event";
   if (isPlayerWrite) {
-    const shouldProtectPlayerWrites = ENFORCE_PLAYER_TOKEN || Boolean(EFFECTIVE_PLAYER_TOKEN);
-    if (!shouldProtectPlayerWrites) return next();
+    if (!ENFORCE_PLAYER_TOKEN) return next();
     const token = extractPlayerToken(req) || extractAdminToken(req);
     if (token !== EFFECTIVE_PLAYER_TOKEN) {
       return res.status(401).json({ error: "Unauthorized" });
@@ -543,6 +583,14 @@ app.get("/", (req, res) => {
 });
 
 app.get("/api/health", async (req, res) => {
+  const isAdminRequest = ADMIN_TOKEN && extractAdminToken(req) === ADMIN_TOKEN;
+  if (!isAdminRequest) {
+    return res.json({
+      status: "ok",
+      uptime: Math.floor(process.uptime())
+    });
+  }
+
   const data = getData();
   const ordered = getOrderedPlaylist(data);
   const diskUsage = await getDiskUsage();
@@ -1183,6 +1231,57 @@ app.get("/api/photo-groups/:id/photos/:photoId/stream", async (req, res, next) =
   }
 });
 
+app.post("/api/player/pair/start", (req, res) => {
+  prunePairSessions();
+  const deviceId = String(req.body?.deviceId || "").trim();
+  if (!deviceId || deviceId.length < 8 || deviceId.length > 128) {
+    return res.status(400).json({ error: "Invalid deviceId" });
+  }
+
+  const now = Date.now();
+  for (const [code, session] of playerPairSessions.entries()) {
+    if (session.deviceId === deviceId && session.expiresAt > now) {
+      return res.json({ code, expiresInMs: session.expiresAt - now });
+    }
+  }
+
+  const code = generatePairCode();
+  playerPairSessions.set(code, {
+    deviceId,
+    approved: false,
+    createdAt: now,
+    expiresAt: now + PLAYER_PAIR_TTL_MS
+  });
+  return res.json({ code, expiresInMs: PLAYER_PAIR_TTL_MS });
+});
+
+app.post("/api/player/pair/status", (req, res) => {
+  prunePairSessions();
+  const code = String(req.body?.code || "").trim();
+  const deviceId = String(req.body?.deviceId || "").trim();
+  const session = playerPairSessions.get(code);
+  if (!session || session.deviceId !== deviceId) {
+    return res.status(404).json({ approved: false });
+  }
+  if (!session.approved) {
+    return res.json({ approved: false, expiresInMs: Math.max(0, session.expiresAt - Date.now()) });
+  }
+  playerPairSessions.delete(code);
+  return res.json({ approved: true, token: EFFECTIVE_PLAYER_TOKEN });
+});
+
+app.post("/api/player/pair/approve", requireAdminAuth, (req, res) => {
+  prunePairSessions();
+  const code = String(req.body?.code || "").trim();
+  const session = playerPairSessions.get(code);
+  if (!session) {
+    return res.status(404).json({ error: "Code not found or expired" });
+  }
+  session.approved = true;
+  playerPairSessions.set(code, session);
+  return res.json({ status: "ok", deviceId: session.deviceId });
+});
+
 app.post("/api/player/status", (req, res) => {
   const { currentVideoId, currentTime, state, lastError } = req.body || {};
   if (currentVideoId !== undefined) {
@@ -1270,8 +1369,8 @@ async function start() {
     logger.info(`Server listening on ${PORT}`);
   });
 
-  const requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || 0);
-  server.requestTimeout = requestTimeoutMs > 0 ? requestTimeoutMs : 0;
+  const requestTimeoutMs = Number(process.env.REQUEST_TIMEOUT_MS || 300000);
+  server.requestTimeout = requestTimeoutMs > 0 ? requestTimeoutMs : 300000;
   server.keepAliveTimeout = Number(process.env.KEEP_ALIVE_TIMEOUT_MS || 65000);
   server.headersTimeout = Number(process.env.HEADERS_TIMEOUT_MS || 66000);
 
@@ -1291,9 +1390,11 @@ async function start() {
   process.on("SIGINT", () => shutdown("SIGINT"));
   process.on("unhandledRejection", (error) => {
     logger.error(`Unhandled rejection: ${error?.stack || error}`);
+    process.exit(1);
   });
   process.on("uncaughtException", (error) => {
     logger.error(`Uncaught exception: ${error?.stack || error}`);
+    process.exit(1);
   });
 }
 

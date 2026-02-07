@@ -10,6 +10,16 @@
   --overlay-soft: rgba(0, 0, 0, 0.35);
 }
 
+:root[data-theme="light"] {
+  --netflix-black: #e8edf5;
+  --netflix-dark: #d7dee9;
+  --netflix-white: #0f172a;
+  --netflix-light-gray: #334155;
+  --overlay-top: rgba(232, 237, 245, 0.92);
+  --overlay-bottom: rgba(232, 237, 245, 0.9);
+  --overlay-soft: rgba(148, 163, 184, 0.28);
+}
+
 * {
   box-sizing: border-box;
 }
@@ -157,7 +167,7 @@ video[hidden] {
 }
 
 .video-meta span {
-  background: rgba(0, 0, 0, 0.45);
+  background: var(--overlay-soft);
   padding: 6px 10px;
   border-radius: 999px;
   font-weight: 500;
@@ -194,12 +204,17 @@ video[hidden] {
 .progress-container {
   width: 100%;
   height: 5px;
-  background: rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.24);
   border-radius: 2px;
   margin-bottom: 20px;
   cursor: pointer;
   position: relative;
   box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.08) inset;
+}
+
+:root[data-theme="light"] .progress-container {
+  background: rgba(15, 23, 42, 0.16);
+  box-shadow: 0 0 0 1px rgba(15, 23, 42, 0.12) inset;
 }
 
 .progress-container:hover {
@@ -341,10 +356,14 @@ video[hidden] {
   letter-spacing: 0.6px;
   margin-left: auto;
   font-weight: 500;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--overlay-soft);
   padding: 8px 12px;
   border-radius: 999px;
   border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+:root[data-theme="light"] .time-display {
+  border-color: rgba(15, 23, 42, 0.18);
 }
 
 .unmute-overlay {
@@ -539,6 +558,69 @@ body.tizen .unmute-overlay {
 
 body.tizen .loading-spinner {
   animation: spin 1.2s linear infinite;
+}
+
+.pairing-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 880;
+  display: grid;
+  place-items: center;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.pairing-overlay .panel {
+  width: min(92vw, 560px);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.9);
+  color: #fff;
+  padding: 22px;
+  text-align: center;
+}
+
+.pairing-overlay .title {
+  font-size: 30px;
+  font-weight: 700;
+}
+
+.pairing-overlay .message {
+  margin-top: 10px;
+  font-size: 16px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.pair-code {
+  margin-top: 14px;
+  font-size: 46px;
+  letter-spacing: 0.08em;
+  font-weight: 800;
+  color: #fff;
+}
+
+.pairing-overlay .hint {
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 14px;
+}
+
+:root[data-theme="light"] .pairing-overlay {
+  background: rgba(15, 23, 42, 0.3);
+}
+
+:root[data-theme="light"] .pairing-overlay .panel {
+  background: rgba(255, 255, 255, 0.95);
+  color: #0f172a;
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+:root[data-theme="light"] .pairing-overlay .message,
+:root[data-theme="light"] .pairing-overlay .hint {
+  color: rgba(15, 23, 42, 0.72);
+}
+
+:root[data-theme="light"] .pair-code {
+  color: #0f172a;
 }
 
 .error-overlay {

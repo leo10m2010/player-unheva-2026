@@ -8,6 +8,9 @@ const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
 const saveOrderBtn = document.getElementById("saveOrderBtn");
 const tvModeBtn = document.getElementById("tvModeBtn");
+const themeModeBtn = document.getElementById("themeModeBtn");
+const pairTvBtn = document.getElementById("pairTvBtn");
+const authTokenBtn = document.getElementById("authTokenBtn");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
 const cleanupThumbsBtn = document.getElementById("cleanupThumbsBtn");
 const topDiskState = document.getElementById("topDiskState");
@@ -44,7 +47,10 @@ const photoGroupTitle = document.getElementById("photoGroupTitle");
 const photoGroupFooter = document.getElementById("photoGroupFooter");
 const photoGroupList = document.getElementById("photoGroupList");
 const photoAudioInput = document.getElementById("photoAudioInput");
+const selectPhotoAudioBtn = document.getElementById("selectPhotoAudioBtn");
 const removePhotoAudioBtn = document.getElementById("removePhotoAudioBtn");
+const photoAudioStatus = document.getElementById("photoAudioStatus");
+const photoAudioName = document.getElementById("photoAudioName");
 const groupPanel = document.getElementById("groupPanel");
 const diskMeterBar = document.getElementById("diskMeterBar");
 const processMeter = document.getElementById("processMeter");
@@ -56,6 +62,11 @@ const renameModal = document.getElementById("renameModal");
 const renameInput = document.getElementById("renameInput");
 const renameCancelBtn = document.getElementById("renameCancelBtn");
 const renameSaveBtn = document.getElementById("renameSaveBtn");
+const photoPreviewModal = document.getElementById("photoPreviewModal");
+const photoPreviewImage = document.getElementById("photoPreviewImage");
+const photoPreviewPrevBtn = document.getElementById("photoPreviewPrevBtn");
+const photoPreviewNextBtn = document.getElementById("photoPreviewNextBtn");
+const photoPreviewCloseBtn = document.getElementById("photoPreviewCloseBtn");
 
 let playlist = [];
 let selectedFiles = [];
@@ -74,6 +85,7 @@ const ADMIN_TOKEN_KEY = "admin-api-token";
 let renamingVideo = null;
 let queueWasRunning = false;
 let tvModePreference = "auto";
+let themeModePreference = "auto";
 let authWarningShown = false;
 let recentErrorsCache = [];
 let playlistSignature = "";
@@ -82,6 +94,8 @@ let photoGroupSignature = "";
 let refreshInFlight = false;
 let refreshQueued = false;
 let refreshPromise = Promise.resolve();
+let previewPhotoUrls = [];
+let previewPhotoIndex = -1;
 
 function buildListSignature(list, projector) {
   if (!Array.isArray(list) || !list.length) return "";
@@ -97,18 +111,26 @@ function readAdminToken() {
 }
 
 function persistAdminTokenFromUrl() {
+  const params = new URLSearchParams(window.location.search || "");
+  if (!params.has("token")) return;
+  params.delete("token");
+  const nextQuery = params.toString();
+  const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+  window.history.replaceState({}, "", nextUrl);
+}
+
+function promptForAdminToken(force = false) {
+  const existing = readAdminToken();
+  if (existing && !force) return existing;
+  const provided = window.prompt("Ingresa ADMIN_TOKEN para administrar el panel", existing || "");
+  const token = String(provided || "").trim();
+  if (!token) return "";
   try {
-    const params = new URLSearchParams(window.location.search);
-    const token = String(params.get("token") || "").trim();
-    if (!token) return;
     localStorage.setItem(ADMIN_TOKEN_KEY, token);
-    params.delete("token");
-    const nextQuery = params.toString();
-    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
-    window.history.replaceState({}, "", nextUrl);
   } catch (error) {
     // ignore
   }
+  return token;
 }
 
 const TV_MODE_BREAKPOINT = 1300;
@@ -154,6 +176,45 @@ function cycleTvModePreference() {
     return;
   }
   setTvModePreference("auto");
+}
+
+function computeAutoThemeMode() {
+  return window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
+
+function applyThemePreference() {
+  const resolved = themeModePreference === "auto" ? computeAutoThemeMode() : themeModePreference;
+  document.documentElement.dataset.theme = resolved;
+  if (!themeModeBtn) return;
+  if (themeModePreference === "auto") {
+    themeModeBtn.textContent = `Tema AUTO (${resolved === "dark" ? "OSC" : "CLA"})`;
+    return;
+  }
+  themeModeBtn.textContent = resolved === "dark" ? "Tema OSCURO" : "Tema CLARO";
+}
+
+function setThemePreference(nextPreference) {
+  themeModePreference = nextPreference;
+  try {
+    localStorage.setItem("admin-theme-mode-pref", nextPreference);
+  } catch (error) {
+    // ignore
+  }
+  applyThemePreference();
+}
+
+function cycleThemePreference() {
+  if (themeModePreference === "auto") {
+    setThemePreference("dark");
+    return;
+  }
+  if (themeModePreference === "dark") {
+    setThemePreference("light");
+    return;
+  }
+  setThemePreference("auto");
 }
 
 function setSystemProgress(visible, percent = 0, text = "", meta = "") {
@@ -326,8 +387,9 @@ async function apiRequest(url, options = {}) {
   const res = await fetch(url, { ...options, headers });
   if (res.status === 401 && !authWarningShown) {
     authWarningShown = true;
-    setFeedback("Sesion admin no autorizada. Abre /admin?token=TU_TOKEN", "error");
-    showToast("No autorizado. Falta token admin.", "error");
+    setFeedback("Sesion admin no autorizada. Actualiza el token.", "error");
+    showToast("No autorizado. Ingresa token admin.", "error");
+    promptForAdminToken(true);
   }
   if (res.ok) {
     authWarningShown = false;
@@ -341,6 +403,24 @@ async function fetchJson(url, options) {
     throw new Error(`HTTP ${res.status} ${url}`);
   }
   return res.json();
+}
+
+async function approvePairingCode(code) {
+  const clean = String(code || "").trim();
+  if (!/^\d{6}$/.test(clean)) {
+    setFeedback("Codigo invalido. Debe tener 6 digitos.", "error");
+    return;
+  }
+  const res = await apiRequest("/api/player/pair/approve", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ code: clean })
+  });
+  if (!res.ok) {
+    setFeedback("No se pudo vincular TV (codigo vencido o incorrecto)", "error");
+    return;
+  }
+  setFeedback("TV vinculada correctamente", "success");
 }
 
 async function fetchPlaylist() {
@@ -378,9 +458,59 @@ async function fetchPhotoGroups() {
     return `${group?.id || ""}:${group?.title || ""}:${group?.displayDuration || ""}:${group?.footer || ""}:${photos}`;
   });
   photoGroups = nextGroups;
+  updateFilterCounts();
   if (nextSignature !== photoGroupSignature) {
     photoGroupSignature = nextSignature;
     renderPhotoGroups();
+  }
+}
+
+function setPhotoAudioUiState(state) {
+  if (photoAudioStatus) {
+    photoAudioStatus.classList.remove("active", "loading");
+    photoAudioStatus.textContent = state.status || "Sin musica configurada";
+    if (state.kind === "active") photoAudioStatus.classList.add("active");
+    if (state.kind === "loading") photoAudioStatus.classList.add("loading");
+  }
+  if (photoAudioName) {
+    photoAudioName.textContent = state.name || "";
+  }
+  if (removePhotoAudioBtn) {
+    removePhotoAudioBtn.disabled = !state.hasAudio || Boolean(state.busy);
+  }
+  if (selectPhotoAudioBtn) {
+    selectPhotoAudioBtn.disabled = Boolean(state.busy);
+  }
+}
+
+async function fetchPhotoAudioState() {
+  try {
+    const payload = await fetchJson("/api/audio/background");
+    if (payload?.url) {
+      setPhotoAudioUiState({
+        kind: "active",
+        status: "Musica activa para grupos de fotos",
+        name: payload.originalName ? `Archivo: ${payload.originalName}` : "Archivo cargado",
+        hasAudio: true,
+        busy: false
+      });
+      return;
+    }
+    setPhotoAudioUiState({
+      kind: "idle",
+      status: "Sin musica configurada",
+      name: "",
+      hasAudio: false,
+      busy: false
+    });
+  } catch (error) {
+    setPhotoAudioUiState({
+      kind: "idle",
+      status: "No se pudo consultar estado de musica",
+      name: "",
+      hasAudio: false,
+      busy: false
+    });
   }
 }
 
@@ -1063,12 +1193,17 @@ function renderPhotoGroups() {
 
     const photoGrid = document.createElement("div");
     photoGrid.className = "group-photos";
-    (group.photos || []).slice(0, 6).forEach((photo) => {
+    const groupPhotoUrls = (group.photos || []).map(
+      (photo) => `/api/photo-groups/${group.id}/photos/${photo.id}/stream`
+    );
+    (group.photos || []).forEach((photo, photoIndex) => {
       const thumb = document.createElement("div");
       thumb.className = "group-thumb";
       const img = document.createElement("img");
-      img.src = `/api/photo-groups/${group.id}/photos/${photo.id}/stream`;
+      img.src = groupPhotoUrls[photoIndex];
       img.alt = "";
+       img.loading = "lazy";
+       img.addEventListener("click", () => openPhotoPreview(img.src, groupPhotoUrls, photoIndex));
       thumb.appendChild(img);
       const del = document.createElement("button");
       del.type = "button";
@@ -1277,6 +1412,41 @@ function closeRenameModal() {
   renamingVideo = null;
   renameModal.hidden = true;
   renameInput.value = "";
+}
+
+function updatePhotoPreviewNavState() {
+  const canNavigate = previewPhotoUrls.length > 1;
+  if (photoPreviewPrevBtn) {
+    photoPreviewPrevBtn.disabled = !canNavigate;
+  }
+  if (photoPreviewNextBtn) {
+    photoPreviewNextBtn.disabled = !canNavigate;
+  }
+}
+
+function openPhotoPreview(src, allUrls = [], index = 0) {
+  if (!photoPreviewModal || !photoPreviewImage || !src) return;
+  const normalized = Array.isArray(allUrls) ? allUrls.filter(Boolean) : [];
+  previewPhotoUrls = normalized.length ? normalized : [src];
+  previewPhotoIndex = Math.max(0, Math.min(index, previewPhotoUrls.length - 1));
+  photoPreviewImage.src = previewPhotoUrls[previewPhotoIndex] || src;
+  updatePhotoPreviewNavState();
+  photoPreviewModal.hidden = false;
+}
+
+function closePhotoPreview() {
+  if (!photoPreviewModal || !photoPreviewImage) return;
+  photoPreviewModal.hidden = true;
+  photoPreviewImage.removeAttribute("src");
+  previewPhotoUrls = [];
+  previewPhotoIndex = -1;
+}
+
+function movePhotoPreview(step) {
+  if (!previewPhotoUrls.length || !photoPreviewImage) return;
+  previewPhotoIndex = (previewPhotoIndex + step + previewPhotoUrls.length) % previewPhotoUrls.length;
+  photoPreviewImage.src = previewPhotoUrls[previewPhotoIndex];
+  updatePhotoPreviewNavState();
 }
 
 async function submitRename() {
@@ -1549,30 +1719,63 @@ if (photoGroupForm) {
   });
 }
 
+if (selectPhotoAudioBtn && photoAudioInput) {
+  selectPhotoAudioBtn.addEventListener("click", () => {
+    photoAudioInput.click();
+  });
+}
+
 if (photoAudioInput) {
   photoAudioInput.addEventListener("change", async () => {
     const file = photoAudioInput.files?.[0];
     if (!file) return;
     const formData = new FormData();
     formData.append("audio", file);
-    const res = await apiRequest("/api/audio/background", { method: "POST", body: formData });
-    if (!res.ok) {
-      setFeedback("No se pudo subir la musica", "error");
-    } else {
-      setFeedback("Musica actualizada", "success");
+    setPhotoAudioUiState({
+      kind: "loading",
+      status: "Subiendo musica...",
+      name: file.name ? `Archivo: ${file.name}` : "",
+      hasAudio: true,
+      busy: true
+    });
+    try {
+      const res = await apiRequest("/api/audio/background", { method: "POST", body: formData });
+      if (!res.ok) {
+        setFeedback("No se pudo subir la musica", "error");
+      } else {
+        setFeedback("Musica actualizada", "success");
+      }
+    } finally {
+      await fetchPhotoAudioState();
+      photoAudioInput.value = "";
     }
-    photoAudioInput.value = "";
   });
 }
 
 if (removePhotoAudioBtn) {
   removePhotoAudioBtn.addEventListener("click", async () => {
-    const res = await apiRequest("/api/audio/background", { method: "DELETE" });
-    if (!res.ok) {
-      setFeedback("No se pudo quitar la musica", "error");
-      return;
-    }
-    setFeedback("Musica eliminada", "success");
+    showActionToast(
+      "Quitar musica global para grupos",
+      "Quitar",
+      async () => {
+        setPhotoAudioUiState({
+          kind: "loading",
+          status: "Quitando musica...",
+          name: "",
+          hasAudio: false,
+          busy: true
+        });
+        const res = await apiRequest("/api/audio/background", { method: "DELETE" });
+        if (!res.ok) {
+          setFeedback("No se pudo quitar la musica", "error");
+          await fetchPhotoAudioState();
+          return;
+        }
+        setFeedback("Musica eliminada", "success");
+        await fetchPhotoAudioState();
+      },
+      "error"
+    );
   });
 }
 
@@ -1687,6 +1890,32 @@ tvModeBtn.addEventListener("click", () => {
   cycleTvModePreference();
 });
 
+if (themeModeBtn) {
+  themeModeBtn.addEventListener("click", () => {
+    cycleThemePreference();
+  });
+}
+
+if (authTokenBtn) {
+  authTokenBtn.addEventListener("click", () => {
+    const token = promptForAdminToken(true);
+    if (!token) {
+      setFeedback("Token no actualizado", "error");
+      return;
+    }
+    setFeedback("Token admin actualizado", "success");
+    refreshAll().catch(() => showOfflineState());
+  });
+}
+
+if (pairTvBtn) {
+  pairTvBtn.addEventListener("click", () => {
+    const code = window.prompt("Ingresa el codigo de 6 digitos mostrado en la TV");
+    if (!code) return;
+    approvePairingCode(code).catch(() => setFeedback("No se pudo vincular TV", "error"));
+  });
+}
+
 window.addEventListener("resize", () => {
   if (tvModePreference !== "auto") return;
   applyTvModePreference();
@@ -1717,6 +1946,50 @@ renameModal.addEventListener("click", (event) => {
   }
 });
 
+if (photoPreviewCloseBtn) {
+  photoPreviewCloseBtn.addEventListener("click", () => {
+    closePhotoPreview();
+  });
+}
+
+if (photoPreviewPrevBtn) {
+  photoPreviewPrevBtn.addEventListener("click", () => {
+    movePhotoPreview(-1);
+  });
+}
+
+if (photoPreviewNextBtn) {
+  photoPreviewNextBtn.addEventListener("click", () => {
+    movePhotoPreview(1);
+  });
+}
+
+if (photoPreviewModal) {
+  photoPreviewModal.addEventListener("click", (event) => {
+    if (event.target === photoPreviewModal) {
+      closePhotoPreview();
+    }
+  });
+}
+
+document.addEventListener("keydown", (event) => {
+  if (!photoPreviewModal || photoPreviewModal.hidden) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    closePhotoPreview();
+    return;
+  }
+  if (event.key === "ArrowLeft") {
+    event.preventDefault();
+    movePhotoPreview(-1);
+    return;
+  }
+  if (event.key === "ArrowRight") {
+    event.preventDefault();
+    movePhotoPreview(1);
+  }
+});
+
 libraryToolbar.addEventListener("click", (event) => {
   const target = event.target;
   if (!(target instanceof HTMLElement)) return;
@@ -1744,9 +2017,15 @@ async function refreshAll() {
     do {
       refreshQueued = false;
       if (hasPendingChanges()) {
-        await fetchHealthAndStats();
+        await Promise.all([fetchHealthAndStats(), fetchPhotoAudioState()]);
       } else {
-        await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats(), fetchPhotoGroups()]);
+        await Promise.all([
+          fetchPlaylist(),
+          fetchLibrary(),
+          fetchHealthAndStats(),
+          fetchPhotoGroups(),
+          fetchPhotoAudioState()
+        ]);
       }
     } while (refreshQueued);
   })().finally(() => {
@@ -1764,6 +2043,7 @@ function showOfflineState() {
 }
 
 persistAdminTokenFromUrl();
+promptForAdminToken(false);
 
 refreshAll().catch(() => {
   setStatus("Error cargando datos");
@@ -1798,4 +2078,26 @@ try {
 } catch (error) {
   tvModePreference = "auto";
   applyTvModePreference();
+}
+
+try {
+  const themePref = localStorage.getItem("admin-theme-mode-pref");
+  if (themePref === "dark" || themePref === "light" || themePref === "auto") {
+    themeModePreference = themePref;
+  } else {
+    themeModePreference = "auto";
+  }
+  applyThemePreference();
+} catch (error) {
+  themeModePreference = "auto";
+  applyThemePreference();
+}
+
+if (window.matchMedia) {
+  const query = window.matchMedia("(prefers-color-scheme: dark)");
+  query.addEventListener("change", () => {
+    if (themeModePreference === "auto") {
+      applyThemePreference();
+    }
+  });
 }
