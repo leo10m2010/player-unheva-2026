@@ -3,6 +3,9 @@ const uploadForm = document.getElementById("uploadForm");
 const videoInput = document.getElementById("videoInput");
 const uploadZone = document.getElementById("uploadZone");
 const uploadCount = document.getElementById("uploadCount");
+const uploadMode = document.getElementById("uploadMode");
+const photoGroupSelect = document.getElementById("photoGroupSelect");
+const groupSelectWrap = document.getElementById("groupSelectWrap");
 const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
 const saveOrderBtn = document.getElementById("saveOrderBtn");
@@ -288,6 +291,40 @@ async function fetchPhotoGroups() {
   const res = await fetch("/api/photo-groups");
   photoGroups = await res.json();
   renderPhotoGroups();
+  renderPhotoGroupSelect();
+}
+
+function renderPhotoGroupSelect() {
+  if (!photoGroupSelect) return;
+  photoGroupSelect.innerHTML = "";
+  if (!photoGroups.length) {
+    const empty = document.createElement("div");
+    empty.className = "empty";
+    empty.textContent = "Crea un grupo para subir fotos.";
+    photoGroupSelect.appendChild(empty);
+    return;
+  }
+  photoGroups.forEach((group) => {
+    const label = document.createElement("label");
+    label.className = "group-option";
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.value = group.id;
+
+    const img = document.createElement("img");
+    const firstPhoto = (group.photos || [])[0];
+    img.src = firstPhoto ? `/uploads/${firstPhoto.filename}` : "";
+    img.alt = "";
+
+    const text = document.createElement("span");
+    text.textContent = group.title;
+
+    label.appendChild(checkbox);
+    label.appendChild(img);
+    label.appendChild(text);
+    photoGroupSelect.appendChild(label);
+  });
 }
 
 function setPlaylistDirty(value) {
@@ -895,17 +932,6 @@ function renderPhotoGroups() {
     const actions = document.createElement("div");
     actions.className = "group-actions";
 
-    const uploadInput = document.createElement("input");
-    uploadInput.type = "file";
-    uploadInput.accept = ".jpg,.jpeg,.png,.webp,.gif";
-    uploadInput.multiple = true;
-    uploadInput.addEventListener("change", async () => {
-      const files = Array.from(uploadInput.files || []);
-      if (!files.length) return;
-      await uploadPhotosToGroup(group.id, files);
-      uploadInput.value = "";
-    });
-
     const photoGrid = document.createElement("div");
     photoGrid.className = "group-photos";
     (group.photos || []).slice(0, 6).forEach((photo) => {
@@ -984,7 +1010,6 @@ function renderPhotoGroups() {
     deleteBtn.textContent = "Eliminar";
     deleteBtn.addEventListener("click", () => deletePhotoGroup(group.id));
 
-    actions.appendChild(uploadInput);
     actions.appendChild(addBtn);
     actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
@@ -1270,7 +1295,7 @@ uploadForm.addEventListener("submit", async (event) => {
     return;
   }
 
-  enqueueUploads(files);
+  await handleUploadFiles(files);
   selectedFiles = [];
   videoInput.value = "";
 });
@@ -1278,7 +1303,7 @@ uploadForm.addEventListener("submit", async (event) => {
 videoInput.addEventListener("change", () => {
   const files = Array.from(videoInput.files || []);
   if (!files.length) return;
-  enqueueUploads(files);
+  handleUploadFiles(files);
   selectedFiles = [];
   videoInput.value = "";
 });
@@ -1296,12 +1321,45 @@ uploadZone.addEventListener("drop", (event) => {
   event.preventDefault();
   uploadZone.classList.remove("dragover");
   const dropped = Array.from(event.dataTransfer.files || []);
-  enqueueUploads(dropped.filter((file) => file.name));
+  handleUploadFiles(dropped.filter((file) => file.name));
 });
+
+async function handleUploadFiles(files) {
+  if (!files.length) return;
+  const mode = uploadMode?.value || "media";
+  if (mode === "group") {
+    const selected = Array.from(
+      photoGroupSelect?.querySelectorAll("input[type=checkbox]:checked") || []
+    ).map((input) => input.value);
+    if (!selected.length) {
+      setFeedback("Selecciona un grupo de fotos", "error");
+      return;
+    }
+    setSystemProgress(true, 0, "Subiendo fotos", `${files.length} archivo(s)`);
+    for (const groupId of selected) {
+      await uploadPhotosToGroup(groupId, files);
+    }
+    setSystemProgress(false, 0, "", "");
+    return;
+  }
+  enqueueUploads(files);
+}
 
 if (defaultImageDurationInput) {
   defaultImageDurationInput.addEventListener("input", handleDefaultImageDurationInput);
   defaultImageDurationInput.addEventListener("change", handleDefaultImageDurationInput);
+}
+
+if (uploadMode && groupSelectWrap) {
+  uploadMode.addEventListener("change", () => {
+    const mode = uploadMode.value;
+    groupSelectWrap.hidden = mode !== "group";
+    videoInput.accept =
+      mode === "group"
+        ? ".jpg,.jpeg,.png,.webp,.gif"
+        : ".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif";
+  });
+  uploadMode.dispatchEvent(new Event("change"));
 }
 
 if (applyDefaultDurationBtn) {

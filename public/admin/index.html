@@ -107,6 +107,19 @@
             <div class="upload-subtitle">videos e imagenes desde tu equipo</div>
             <input class="file-native" type="file" id="videoInput" name="video" accept=".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif" multiple />
           </div>
+          <div class="upload-options">
+            <label>
+              Modo de carga
+              <select id="uploadMode">
+                <option value="media" selected>Contenido (video/imagen)</option>
+                <option value="group">Fotos para grupo</option>
+              </select>
+            </label>
+            <label id="groupSelectWrap" hidden>
+              Grupos de fotos (puedes seleccionar varios)
+              <div id="photoGroupSelect" class="group-multi"></div>
+            </label>
+          </div>
           <div class="upload-footer">
             <div class="upload-count" id="uploadCount">0 archivos</div>
             <button type="submit">Subir</button>
@@ -126,7 +139,7 @@
 
       <section class="card full">
         <h2>Grupos de fotos (collage)</h2>
-        <p class="help">Sube fotos por grupo y agrega el grupo a la playlist.</p>
+        <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
         <form id="photoGroupForm" class="group-form">
           <input id="photoGroupTitle" type="text" placeholder="Titulo del grupo" maxlength="120" />
           <input id="photoGroupFooter" type="text" placeholder="Pie de pagina" maxlength="180" />

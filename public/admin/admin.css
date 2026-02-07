@@ -389,6 +389,61 @@ body {
   color: var(--muted);
 }
 
+.upload-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.upload-options label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.group-multi {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--line);
+  background: #fff;
+  max-height: 180px;
+  overflow: auto;
+}
+
+.group-option {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+  background: #f8fafc;
+}
+
+.group-option input {
+  margin: 0;
+}
+
+.group-option img {
+  width: 42px;
+  height: 42px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #e2e8f0;
+}
+
+.group-option span {
+  font-size: 12px;
+  color: var(--text);
+}
+
 .file-native::file-selector-button,
 .file-native::-webkit-file-upload-button {
   border: none;
