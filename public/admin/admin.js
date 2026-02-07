@@ -3,7 +3,6 @@ const uploadForm = document.getElementById("uploadForm");
 const videoInput = document.getElementById("videoInput");
 const uploadZone = document.getElementById("uploadZone");
 const uploadCount = document.getElementById("uploadCount");
-const groupSelectHelp = document.getElementById("groupSelectHelp");
 const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
 const saveOrderBtn = document.getElementById("saveOrderBtn");
@@ -1085,12 +1084,6 @@ function renderLibrary() {
 function renderPhotoGroups() {
   if (!photoGroupList) return;
   photoGroupList.innerHTML = "";
-  if (groupSelectHelp) {
-    groupSelectHelp.textContent =
-      photoGroups.length > 0
-        ? "Gestiona grupos desde Biblioteca > Grupos."
-        : "No hay grupos. Crea uno en Biblioteca > Grupos.";
-  }
   if (!photoGroups.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
@@ -1215,15 +1208,25 @@ function renderPhotoGroups() {
     (group.photos || []).forEach((photo, photoIndex) => {
       const thumb = document.createElement("div");
       thumb.className = "group-thumb";
+
+      const openBtn = document.createElement("button");
+      openBtn.type = "button";
+      openBtn.className = "group-thumb-open";
+      openBtn.setAttribute("aria-label", `Ver foto ${photoIndex + 1} de ${group.title}`);
+
       const img = document.createElement("img");
       img.src = groupPhotoUrls[photoIndex];
       img.alt = "";
-       img.loading = "lazy";
-       img.addEventListener("click", () => openPhotoPreview(img.src, groupPhotoUrls, photoIndex));
-      thumb.appendChild(img);
+      img.loading = "lazy";
+      openBtn.addEventListener("click", () => openPhotoPreview(img.src, groupPhotoUrls, photoIndex));
+      openBtn.appendChild(img);
+      thumb.appendChild(openBtn);
+
       const del = document.createElement("button");
       del.type = "button";
+      del.className = "group-thumb-delete";
       del.textContent = "x";
+      del.setAttribute("aria-label", "Eliminar foto");
       del.addEventListener("click", async () => {
         const res = await apiRequest(`/api/photo-groups/${group.id}/photos/${photo.id}`, {
           method: "DELETE"
@@ -1687,10 +1690,6 @@ if (defaultImageDurationInput) {
   defaultImageDurationInput.addEventListener("change", handleDefaultImageDurationInput);
 }
 
-if (groupSelectHelp) {
-  groupSelectHelp.textContent = "Para fotos por grupos, abre Biblioteca > Grupos.";
-}
-
 if (applyDefaultDurationBtn) {
   applyDefaultDurationBtn.addEventListener("click", async () => {
     showActionToast(
@@ -2138,9 +2137,14 @@ try {
 
 if (window.matchMedia) {
   const query = window.matchMedia("(prefers-color-scheme: dark)");
-  query.addEventListener("change", () => {
+  const onSchemeChange = () => {
     if (themeModePreference === "auto") {
       applyThemePreference();
     }
-  });
+  };
+  if (query.addEventListener) {
+    query.addEventListener("change", onSchemeChange);
+  } else if (query.addListener) {
+    query.addListener(onSchemeChange);
+  }
 }

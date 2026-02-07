@@ -9,7 +9,7 @@ if ! PAYLOAD="$(curl -fsS --max-time "$TIMEOUT" "$HEALTH_URL")"; then
   exit 1
 fi
 
-STATUS="$(printf '%s' "$PAYLOAD" | sed -n 's/.*"status":"\([^"]*\)".*/\1/p')"
+STATUS="$(printf '%s' "$PAYLOAD" | node -e 'let body=""; process.stdin.on("data", d => body += d); process.stdin.on("end", () => { try { const parsed = JSON.parse(body); process.stdout.write(String(parsed.status || "")); } catch { process.stdout.write(""); } });')"
 
 if [[ "$STATUS" != "ok" ]]; then
   echo "[health-monitor] error: status inesperado ($STATUS)"

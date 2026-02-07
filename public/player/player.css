@@ -160,7 +160,7 @@ video[hidden] {
 .video-meta {
   margin-top: 10px;
   font-size: 16px;
-  color: rgba(255, 255, 255, 0.85);
+  color: var(--netflix-light-gray);
   display: flex;
   flex-wrap: wrap;
   gap: 16px;

@@ -117,9 +117,14 @@ class Player24x7 {
     this.applyTheme();
     if (!this.isTizen && window.matchMedia) {
       const query = window.matchMedia("(prefers-color-scheme: dark)");
-      query.addEventListener("change", () => {
+      const onSchemeChange = () => {
         this.applyTheme();
-      });
+      };
+      if (query.addEventListener) {
+        query.addEventListener("change", onSchemeChange);
+      } else if (query.addListener) {
+        query.addListener(onSchemeChange);
+      }
     }
     this.showError(false);
     playBtn.classList.add("is-paused");
@@ -726,36 +731,46 @@ class Player24x7 {
   handleKeydown(event) {
     const action = this.resolveKeyAction(event);
     if (unmuteOverlay.hidden === false) {
-      if (action === "activate") this.unmute();
+      if (action === "activate") {
+        event.preventDefault();
+        this.unmute();
+      }
       return;
     }
 
     this.showControls();
     if (action === "right") {
+      event.preventDefault();
       this.focusNext();
       return;
     }
     if (action === "left") {
+      event.preventDefault();
       this.focusPrev();
       return;
     }
     if (action === "activate") {
+      event.preventDefault();
       this.activateFocused();
       return;
     }
     if (action === "playpause") {
+      event.preventDefault();
       this.togglePlay();
       return;
     }
     if (action === "next") {
+      event.preventDefault();
       this.playNext();
       return;
     }
     if (action === "prev") {
+      event.preventDefault();
       this.playPrev();
       return;
     }
     if (action === "info") {
+      event.preventDefault();
       this.toggleInfo();
     }
   }
@@ -1209,11 +1224,14 @@ class Player24x7 {
 
   async logEvent(type, videoId, message) {
     try {
-      await fetch("/api/player/event", {
+      const res = await fetch("/api/player/event", {
         method: "POST",
         headers: this.authHeaders(),
         body: JSON.stringify({ type, videoId, message })
       });
+      if (!res.ok) {
+        throw new Error(`Event endpoint returned ${res.status}`);
+      }
     } catch (error) {
       console.warn("Event log failed", error);
     }
