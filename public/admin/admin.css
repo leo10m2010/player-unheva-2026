@@ -430,7 +430,19 @@ body {
   border-radius: 10px;
   padding: 8px;
   cursor: pointer;
-  background: #f8fafc;
+  background: #ffffff;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.group-option:hover {
+  border-color: rgba(192, 22, 34, 0.55);
+  box-shadow: 0 8px 16px rgba(192, 22, 34, 0.08);
+}
+
+.group-help {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
 }
 
 .group-option input {
@@ -617,14 +629,11 @@ body {
   font-size: 14px;
 }
 
-.group-form button {
-  padding: 10px 16px;
-  border-radius: 10px;
-  border: none;
+.save-config-btn.primary,
+.inline-maintenance.primary {
   background: var(--accent);
   color: #ffffff;
-  font-weight: 600;
-  cursor: pointer;
+  border-color: rgba(192, 22, 34, 0.5);
 }
 
 .group-audio {

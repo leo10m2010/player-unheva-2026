@@ -6,6 +6,7 @@ const uploadCount = document.getElementById("uploadCount");
 const uploadMode = document.getElementById("uploadMode");
 const photoGroupSelect = document.getElementById("photoGroupSelect");
 const groupSelectWrap = document.getElementById("groupSelectWrap");
+const groupSelectHelp = document.getElementById("groupSelectHelp");
 const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
 const saveOrderBtn = document.getElementById("saveOrderBtn");
@@ -67,6 +68,7 @@ let lastDiskAlertLevel = "ok";
 let uploadInProgress = false;
 let uploadQueue = [];
 let pendingDefaultImageDuration = null;
+const UPLOAD_MODE_KEY = "admin-upload-mode";
 let renamingVideo = null;
 let queueWasRunning = false;
 let tvModePreference = "auto";
@@ -303,7 +305,13 @@ function renderPhotoGroupSelect() {
     empty.className = "empty";
     empty.textContent = "Crea un grupo para subir fotos.";
     photoGroupSelect.appendChild(empty);
+    if (groupSelectHelp) {
+      groupSelectHelp.textContent = "No hay grupos disponibles. Crea uno abajo.";
+    }
     return;
+  }
+  if (groupSelectHelp) {
+    groupSelectHelp.textContent = "Selecciona uno o varios grupos.";
   }
   photoGroups.forEach((group) => {
     const label = document.createElement("label");
@@ -970,7 +978,7 @@ function renderPhotoGroups() {
       (entry) => entry.type === "photoGroup" && entry.id === group.id
     );
     const addBtn = document.createElement("button");
-    addBtn.className = "primary";
+    addBtn.className = "save-config-btn primary";
     addBtn.type = "button";
     addBtn.textContent = inPlaylist ? "Quitar de playlist" : "Agregar a playlist";
     addBtn.addEventListener("click", () => {
@@ -993,6 +1001,7 @@ function renderPhotoGroups() {
     });
 
     const saveBtn = document.createElement("button");
+    saveBtn.className = "save-config-btn";
     saveBtn.type = "button";
     saveBtn.textContent = "Guardar";
     saveBtn.addEventListener("click", async () => {
@@ -1014,6 +1023,7 @@ function renderPhotoGroups() {
     });
 
     const deleteBtn = document.createElement("button");
+    deleteBtn.className = "save-config-btn";
     deleteBtn.type = "button";
     deleteBtn.textContent = "Eliminar";
     deleteBtn.addEventListener("click", () => deletePhotoGroup(group.id));
@@ -1361,12 +1371,44 @@ if (defaultImageDurationInput) {
 if (uploadMode && groupSelectWrap) {
   uploadMode.addEventListener("change", () => {
     const mode = uploadMode.value;
+    try {
+      localStorage.setItem(UPLOAD_MODE_KEY, mode);
+    } catch (error) {
+      // ignore
+    }
     groupSelectWrap.hidden = mode !== "group";
     videoInput.accept =
       mode === "group"
         ? ".jpg,.jpeg,.png,.webp,.gif"
         : ".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif";
+    if (mode === "group") {
+      libraryFilter = "group";
+      libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
+        btn.classList.toggle("is-active", btn.dataset.filter === "group");
+      });
+      if (groupPanel) groupPanel.hidden = false;
+      if (libraryEl) libraryEl.hidden = true;
+      renderPhotoGroups();
+    } else {
+      if (libraryFilter === "group") {
+        libraryFilter = "all";
+        libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
+          btn.classList.toggle("is-active", btn.dataset.filter === "all");
+        });
+      }
+      if (groupPanel) groupPanel.hidden = libraryFilter !== "group";
+      if (libraryEl) libraryEl.hidden = libraryFilter === "group";
+      renderLibrary();
+    }
   });
+  try {
+    const savedMode = localStorage.getItem(UPLOAD_MODE_KEY);
+    if (savedMode === "media" || savedMode === "group") {
+      uploadMode.value = savedMode;
+    }
+  } catch (error) {
+    // ignore
+  }
   uploadMode.dispatchEvent(new Event("change"));
 }
 
