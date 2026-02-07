@@ -11,12 +11,14 @@ const { initStore, getData, saveData } = require("./lib/store");
 const { probeVideo, probeImage, createThumbnail, transcodeToMp4, createAdaptiveHlsPackage } = require("./lib/media");
 
 const PORT = Number(process.env.PORT || 3000);
+const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 const THUMB_DIR = path.join(__dirname, "thumbnails");
 const HLS_DIR = path.join(__dirname, "hls");
 const LOG_DIR = path.join(__dirname, "logs");
 
 const app = express();
+const ERROR_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || "info",
@@ -233,7 +235,8 @@ function getOrderedPlaylist(data, options = {}) {
   const ordered = [];
   const seenVideoIds = new Set();
 
-  if (Array.isArray(data.playlist) && data.playlist.length) {
+  const hasPlaylist = Array.isArray(data.playlist) && data.playlist.length > 0;
+  if (hasPlaylist) {
     data.playlist
       .map((entry) => normalizePlaylistEntry(entry))
       .filter(Boolean)
@@ -251,11 +254,13 @@ function getOrderedPlaylist(data, options = {}) {
       });
   }
 
-  data.videos.forEach((video) => {
-    if (!seenVideoIds.has(video.id)) {
-      ordered.push(video);
-    }
-  });
+  if (!hasPlaylist) {
+    data.videos.forEach((video) => {
+      if (!seenVideoIds.has(video.id)) {
+        ordered.push(video);
+      }
+    });
+  }
 
   const mapped = ordered.map((item) => ({
     ...item,
@@ -288,6 +293,21 @@ function getOrderedPlaylist(data, options = {}) {
   });
 }
 
+function mapLibraryMedia(data) {
+  const defaultImageDuration = Number(
+    process.env.DEFAULT_IMAGE_DURATION || data?.settings?.imageDefaultDuration || 15
+  );
+  return (data.videos || []).map((item) => ({
+    ...item,
+    type: detectMediaType(item),
+    hlsStatus: getHlsStatus(item),
+    displayDuration:
+      detectMediaType(item) === "image"
+        ? Number(item.displayDuration || defaultImageDuration)
+        : null
+  }));
+}
+
 function getContentType(filename) {
   const ext = path.extname(filename).toLowerCase();
   if (ext === ".webm") return "video/webm";
@@ -301,6 +321,15 @@ function getImageContentType(filename) {
   if (ext === ".webp") return "image/webp";
   if (ext === ".gif") return "image/gif";
   return "image/jpeg";
+}
+
+function pruneRecentErrors(errors) {
+  const now = Date.now();
+  return (errors || []).filter((item) => {
+    const ts = new Date(item.timestamp || 0).getTime();
+    if (!Number.isFinite(ts)) return false;
+    return now - ts <= ERROR_WINDOW_MS;
+  });
 }
 
 async function ensureDirs() {
@@ -380,6 +409,29 @@ async function backfillMissingHls() {
 app.use(express.json({ limit: "5mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(morgan("combined", { stream: { write: (message) => logger.info(message.trim()) } }));
+
+function extractAdminToken(req) {
+  const headerToken = String(req.get("x-admin-token") || "").trim();
+  if (headerToken) return headerToken;
+  const auth = String(req.get("authorization") || "").trim();
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+  return "";
+}
+
+app.use("/api", (req, res, next) => {
+  if (!ADMIN_TOKEN) return next();
+  const isWriteMethod = !["GET", "HEAD", "OPTIONS"].includes(req.method);
+  if (!isWriteMethod) return next();
+  const allowedWithoutToken = req.path === "/player/status" || req.path === "/player/event";
+  if (allowedWithoutToken) return next();
+  const token = extractAdminToken(req);
+  if (token !== ADMIN_TOKEN) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  return next();
+});
 
 app.use("/admin", express.static(path.join(__dirname, "public", "admin")));
 app.use("/player", express.static(path.join(__dirname, "public", "player")));
@@ -537,9 +589,18 @@ app.delete("/api/photo-groups/:id", async (req, res) => {
 
 app.post("/api/photo-groups/:id/photos", upload.array("photos", 50), async (req, res) => {
   const data = getData();
-  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
-  if (!group) return res.status(404).json({ error: "Group not found" });
   const files = req.files || [];
+  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+  if (!group) {
+    for (const file of files) {
+      try {
+        await fs.unlink(file.path);
+      } catch (error) {
+        logger.error(`Cleanup group upload error: ${error.message}`);
+      }
+    }
+    return res.status(404).json({ error: "Group not found" });
+  }
   if (!files.length) return res.status(400).json({ error: "No files uploaded" });
 
   for (const file of files) {
@@ -598,6 +659,16 @@ app.post("/api/audio/background", upload.single("audio"), async (req, res) => {
     await fs.unlink(file.path);
     return res.status(400).json({ error: "Unsupported audio type" });
   }
+
+  const previousAudio = data.settings?.photoAudio;
+  if (previousAudio?.filename && previousAudio.filename !== file.filename) {
+    try {
+      await fs.unlink(path.join(UPLOAD_DIR, previousAudio.filename));
+    } catch (error) {
+      logger.error(`Delete previous audio error: ${error.message}`);
+    }
+  }
+
   data.settings = data.settings || {};
   data.settings.photoAudio = {
     filename: file.filename,
@@ -624,6 +695,9 @@ app.delete("/api/audio/background", async (req, res) => {
 
 app.get("/api/stats", (req, res) => {
   const data = getData();
+  data.stats = data.stats || {};
+  data.stats.recentErrors = pruneRecentErrors(data.stats.recentErrors);
+  data.stats.errors24h = data.stats.recentErrors.length;
   const durations = data.videos.map((video) => video.duration || 0).filter(Boolean);
   const averageVideoLength = durations.length
     ? durations.reduce((total, value) => total + value, 0) / durations.length
@@ -634,13 +708,24 @@ app.get("/api/stats", (req, res) => {
     averageVideoLength: averageVideoLength ? `${Math.round(averageVideoLength)}s` : null,
     errors24h: data.stats.errors24h,
     lastRestart: data.stats.lastRestart,
-    lastError: data.stats.lastError
+    lastError: data.stats.lastError,
+    recentErrors: data.stats.recentErrors
   });
+});
+
+app.delete("/api/stats/errors", async (req, res) => {
+  const data = getData();
+  data.stats = data.stats || {};
+  data.stats.recentErrors = [];
+  data.stats.errors24h = 0;
+  data.stats.lastError = null;
+  await saveData();
+  res.json({ status: "ok" });
 });
 
 app.get("/api/videos", (req, res) => {
   const data = getData();
-  res.json(getOrderedPlaylist(data));
+  res.json(mapLibraryMedia(data));
 });
 
 app.get("/api/playlist", (req, res) => {
@@ -846,7 +931,11 @@ app.delete("/api/videos/:id", async (req, res) => {
   const [removed] = data.videos.splice(videoIndex, 1);
   hlsProcessing.delete(removed.id);
   hlsFailed.delete(removed.id);
-  data.playlist = data.playlist.filter((id) => id !== removed.id);
+  data.playlist = (data.playlist || []).filter((entry) => {
+    const normalized = normalizePlaylistEntry(entry);
+    if (!normalized) return false;
+    return normalized.id !== removed.id;
+  });
   await saveData();
 
   try {
@@ -876,73 +965,110 @@ app.delete("/api/videos/:id", async (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/api/videos/:id/stream", async (req, res) => {
-  const data = getData();
-  const video = data.videos.find((item) => item.id === req.params.id);
-  if (!video) {
-    return res.status(404).end();
-  }
-
-  const filePath = path.join(UPLOAD_DIR, video.filename);
-  if (detectMediaType(video) === "image") {
-    const stat = await fs.stat(filePath);
-    res.writeHead(200, {
-      "Content-Length": stat.size,
-      "Content-Type": getImageContentType(video.filename)
-    });
-    return fssync.createReadStream(filePath).pipe(res);
-  }
-  const stat = await fs.stat(filePath);
-  const fileSize = stat.size;
-  const range = req.headers.range;
-  const contentType = getContentType(video.filename);
-
-  if (range) {
-    const parts = range.replace(/bytes=/, "").split("-");
-    const start = parseInt(parts[0], 10);
-    const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-    if (Number.isNaN(start) || Number.isNaN(end) || start > end) {
-      return res.status(416).end();
+app.get("/api/videos/:id/stream", async (req, res, next) => {
+  try {
+    const data = getData();
+    const video = data.videos.find((item) => item.id === req.params.id);
+    if (!video) {
+      return res.status(404).end();
     }
-    const chunkSize = end - start + 1;
-    const fileStream = fssync.createReadStream(filePath, { start, end });
 
-    res.writeHead(206, {
-      "Content-Range": `bytes ${start}-${end}/${fileSize}`,
-      "Accept-Ranges": "bytes",
-      "Content-Length": chunkSize,
-      "Content-Type": contentType
-    });
-    fileStream.pipe(res);
-  } else {
+    const filePath = path.join(UPLOAD_DIR, video.filename);
+    if (detectMediaType(video) === "image") {
+      const stat = await fs.stat(filePath);
+      res.writeHead(200, {
+        "Content-Length": stat.size,
+        "Content-Type": getImageContentType(video.filename)
+      });
+      const stream = fssync.createReadStream(filePath);
+      stream.on("error", (error) => {
+        if (!res.headersSent) res.status(500).end();
+        next(error);
+      });
+      return stream.pipe(res);
+    }
+
+    const stat = await fs.stat(filePath);
+    const fileSize = stat.size;
+    const range = req.headers.range;
+    const contentType = getContentType(video.filename);
+
+    if (range) {
+      const parts = range.replace(/bytes=/, "").split("-");
+      const start = parseInt(parts[0], 10);
+      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      if (Number.isNaN(start) || Number.isNaN(end) || start > end) {
+        return res.status(416).end();
+      }
+      const chunkSize = end - start + 1;
+      const fileStream = fssync.createReadStream(filePath, { start, end });
+
+      res.writeHead(206, {
+        "Content-Range": `bytes ${start}-${end}/${fileSize}`,
+        "Accept-Ranges": "bytes",
+        "Content-Length": chunkSize,
+        "Content-Type": contentType
+      });
+      fileStream.on("error", (error) => {
+        if (!res.headersSent) res.status(500).end();
+        next(error);
+      });
+      return fileStream.pipe(res);
+    }
+
     res.writeHead(200, {
       "Content-Length": fileSize,
       "Content-Type": contentType
     });
-    fssync.createReadStream(filePath).pipe(res);
+    const stream = fssync.createReadStream(filePath);
+    stream.on("error", (error) => {
+      if (!res.headersSent) res.status(500).end();
+      next(error);
+    });
+    return stream.pipe(res);
+  } catch (error) {
+    if (error?.code === "ENOENT") return res.status(404).end();
+    return next(error);
   }
 });
 
-app.get("/api/photo-groups/:id/photos/:photoId/stream", async (req, res) => {
-  const data = getData();
-  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
-  if (!group) return res.status(404).end();
-  const photo = (group.photos || []).find((item) => item.id === req.params.photoId);
-  if (!photo) return res.status(404).end();
-  const filePath = path.join(UPLOAD_DIR, photo.filename);
-  const stat = await fs.stat(filePath);
-  res.writeHead(200, {
-    "Content-Length": stat.size,
-    "Content-Type": getImageContentType(photo.filename)
-  });
-  return fssync.createReadStream(filePath).pipe(res);
+app.get("/api/photo-groups/:id/photos/:photoId/stream", async (req, res, next) => {
+  try {
+    const data = getData();
+    const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+    if (!group) return res.status(404).end();
+    const photo = (group.photos || []).find((item) => item.id === req.params.photoId);
+    if (!photo) return res.status(404).end();
+    const filePath = path.join(UPLOAD_DIR, photo.filename);
+    const stat = await fs.stat(filePath);
+    res.writeHead(200, {
+      "Content-Length": stat.size,
+      "Content-Type": getImageContentType(photo.filename)
+    });
+    const stream = fssync.createReadStream(filePath);
+    stream.on("error", (error) => {
+      if (!res.headersSent) res.status(500).end();
+      next(error);
+    });
+    return stream.pipe(res);
+  } catch (error) {
+    if (error?.code === "ENOENT") return res.status(404).end();
+    return next(error);
+  }
 });
 
 app.post("/api/player/status", (req, res) => {
   const { currentVideoId, currentTime, state, lastError } = req.body || {};
-  playerStatus.currentVideoId = currentVideoId || playerStatus.currentVideoId;
-  playerStatus.currentTime = Number(currentTime || 0);
-  playerStatus.state = state || playerStatus.state;
+  if (currentVideoId !== undefined) {
+    playerStatus.currentVideoId = currentVideoId;
+  }
+  const parsedTime = Number(currentTime);
+  if (Number.isFinite(parsedTime)) {
+    playerStatus.currentTime = parsedTime;
+  }
+  if (state !== undefined) {
+    playerStatus.state = state;
+  }
   if (lastError) {
     playerStatus.lastError = lastError;
   }
@@ -951,8 +1077,10 @@ app.post("/api/player/status", (req, res) => {
 });
 
 app.post("/api/player/event", async (req, res) => {
-  const { type, videoId, message } = req.body || {};
+  const { type, videoId, message, mediaType } = req.body || {};
   const data = getData();
+  data.stats = data.stats || {};
+  data.stats.recentErrors = pruneRecentErrors(data.stats.recentErrors);
 
   if (type === "videoChanged") {
     data.stats.videosPlayed += 1;
@@ -960,7 +1088,14 @@ app.post("/api/player/event", async (req, res) => {
   }
 
   if (type === "error") {
-    data.stats.errors24h += 1;
+    data.stats.recentErrors.push({
+      timestamp: new Date().toISOString(),
+      videoId: videoId || null,
+      message: message || "unknown",
+      mediaType: mediaType || "unknown"
+    });
+    data.stats.recentErrors = pruneRecentErrors(data.stats.recentErrors);
+    data.stats.errors24h = data.stats.recentErrors.length;
     data.stats.lastError = message || "unknown";
     playerStatus.lastError = message || "unknown";
     logger.error(`Player error: ${message || "unknown"}`);
@@ -977,7 +1112,9 @@ app.use((err, req, res, next) => {
     }
     return res.status(400).json({ error: err.message || "Upload error" });
   }
-  return next(err);
+  logger.error(`Request error: ${err?.stack || err}`);
+  if (res.headersSent) return next(err);
+  return res.status(500).json({ error: "Server error" });
 });
 
 app.use((req, res) => {

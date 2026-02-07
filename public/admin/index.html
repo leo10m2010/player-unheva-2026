@@ -16,8 +16,8 @@
         <button id="tvModeBtn" class="save-config-btn ghost" type="button">Modo TV</button>
         <button id="saveConfigBtn" class="save-config-btn" type="button">Guardar configuracion</button>
         <div class="disk-state ok" id="topDiskState">Disco OK</div>
-        <div class="save-state is-saved" id="saveState">Sin cambios</div>
-        <div class="status" id="status">Listo</div>
+        <div class="save-state is-saved" id="saveState" aria-live="polite">Sin cambios</div>
+        <div class="status" id="status" aria-live="polite">Listo</div>
       </div>
     </header>
 
@@ -45,7 +45,7 @@
             <strong class="metric-value" id="metricUptime">0m</strong>
           </article>
           <article class="metric-card">
-            <span class="metric-label">Errores 24h</span>
+            <span class="metric-label">Errores player 24h</span>
             <strong class="metric-value" id="metricErrors">0</strong>
           </article>
           <article class="metric-card">
@@ -87,6 +87,24 @@
           <button id="cleanupThumbsBtn" class="inline-maintenance" type="button">Limpiar thumbnails huerfanos</button>
         </div>
 
+        <div class="error-log" id="errorLog">
+          <div class="error-log-head">
+            <strong>Errores detectados (ultimas 24h)</strong>
+            <div class="error-tools">
+              <select id="errorFilter" class="select-control compact">
+                <option value="all">Todos</option>
+                <option value="video">Video</option>
+                <option value="image">Imagen</option>
+                <option value="photoGroup">Grupo</option>
+              </select>
+              <button id="exportErrorsBtn" class="inline-maintenance" type="button">Exportar JSON</button>
+              <button id="clearErrorsBtn" class="inline-maintenance danger" type="button">Limpiar</button>
+            </div>
+          </div>
+          <span id="errorLogHint">Solo cuenta errores enviados por /api/player/event.</span>
+          <ul id="recentErrorsList"></ul>
+        </div>
+
         <div class="config-row">
           <label class="config-field" for="defaultImageDurationInput">
             Duracion por defecto de imagen (seg)
@@ -108,45 +126,15 @@
             <input class="file-native" type="file" id="videoInput" name="video" accept=".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif" multiple />
           </div>
           <div class="upload-options">
-            <label>
-              Modo de carga
-              <select id="uploadMode">
-                <option value="media" selected>Contenido (video/imagen)</option>
-                <option value="group">Fotos para grupo</option>
-              </select>
-            </label>
-            <label id="groupSelectWrap" hidden>
-              Grupos de fotos (puedes seleccionar varios)
-              <div id="photoGroupSelect" class="group-multi"></div>
-              <div id="groupSelectHelp" class="group-help"></div>
-            </label>
+            <span class="group-help" aria-live="polite">
+              Para fotos por grupos, usa la seccion "Grupos" en Biblioteca.
+            </span>
           </div>
           <div class="upload-footer">
             <div class="upload-count" id="uploadCount">0 archivos</div>
             <button type="submit">Subir</button>
           </div>
         </form>
-        <div id="groupPanel" class="group-panel" hidden>
-          <div class="group-panel-head">
-            <div>
-              <h3>Grupos de fotos</h3>
-              <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
-            </div>
-            <div class="group-audio">
-              <label class="file-label">
-                Musica global para fotos
-                <input id="photoAudioInput" type="file" accept=".mp3,.m4a,.aac,.ogg,.wav" />
-              </label>
-              <button id="removePhotoAudioBtn" type="button" class="secondary">Quitar musica</button>
-            </div>
-          </div>
-          <form id="photoGroupForm" class="group-form">
-            <input id="photoGroupTitle" type="text" placeholder="Titulo del grupo" maxlength="120" />
-            <input id="photoGroupFooter" type="text" placeholder="Pie de pagina" maxlength="180" />
-            <button type="submit" class="save-config-btn primary">Crear grupo</button>
-          </form>
-          <div id="photoGroupList" class="group-list"></div>
-        </div>
       </section>
 
       <section class="card">
@@ -165,6 +153,28 @@
           <button class="filter-btn is-active" type="button" data-filter="all">Todo <span id="countAll">0</span></button>
           <button class="filter-btn" type="button" data-filter="video">Videos <span id="countVideo">0</span></button>
           <button class="filter-btn" type="button" data-filter="image">Imagenes <span id="countImage">0</span></button>
+          <button class="filter-btn" type="button" data-filter="group">Grupos <span id="countGroup">0</span></button>
+        </div>
+        <div id="groupPanel" class="group-panel" hidden>
+          <div class="group-panel-head">
+            <div>
+              <h3>Grupos de fotos</h3>
+              <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
+            </div>
+            <div class="group-audio">
+              <label class="file-label">
+                Musica global para fotos
+                <input id="photoAudioInput" class="file-native" type="file" accept=".mp3,.m4a,.aac,.ogg,.wav" />
+              </label>
+              <button id="removePhotoAudioBtn" type="button" class="secondary">Quitar musica</button>
+            </div>
+          </div>
+          <form id="photoGroupForm" class="group-form">
+            <input id="photoGroupTitle" type="text" placeholder="Titulo del grupo" maxlength="120" />
+            <input id="photoGroupFooter" type="text" placeholder="Pie de pagina" maxlength="180" />
+            <button type="submit" class="save-config-btn primary">Crear grupo</button>
+          </form>
+          <div id="photoGroupList" class="group-list"></div>
         </div>
         <div id="library" class="library"></div>
       </section>

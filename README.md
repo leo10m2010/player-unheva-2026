@@ -84,6 +84,7 @@ Respuesta ejemplo:
 - `MAX_FILE_SIZE=4294967296` (4 GB)
 - `TRANSCODE_CONCURRENCY=1`
 - `MAX_TRANSCODE_QUEUE=25`
+- `ADMIN_TOKEN=` (opcional, protege endpoints de escritura con `x-admin-token`)
 - `REQUEST_TIMEOUT_MS=0`
 - `KEEP_ALIVE_TIMEOUT_MS=65000`
 - `HEADERS_TIMEOUT_MS=66000`

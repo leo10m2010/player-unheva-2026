@@ -3,9 +3,6 @@ const uploadForm = document.getElementById("uploadForm");
 const videoInput = document.getElementById("videoInput");
 const uploadZone = document.getElementById("uploadZone");
 const uploadCount = document.getElementById("uploadCount");
-const uploadMode = document.getElementById("uploadMode");
-const photoGroupSelect = document.getElementById("photoGroupSelect");
-const groupSelectWrap = document.getElementById("groupSelectWrap");
 const groupSelectHelp = document.getElementById("groupSelectHelp");
 const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
@@ -20,6 +17,7 @@ const toastHost = document.getElementById("toastHost");
 const countAll = document.getElementById("countAll");
 const countVideo = document.getElementById("countVideo");
 const countImage = document.getElementById("countImage");
+const countGroup = document.getElementById("countGroup");
 const liveState = document.getElementById("liveState");
 const metricCurrentVideo = document.getElementById("metricCurrentVideo");
 const metricPlaylistSize = document.getElementById("metricPlaylistSize");
@@ -34,6 +32,11 @@ const metricQueueState = document.getElementById("metricQueueState");
 const metricUploadEstimate = document.getElementById("metricUploadEstimate");
 const metricLastError = document.getElementById("metricLastError");
 const metricLastUpdate = document.getElementById("metricLastUpdate");
+const recentErrorsList = document.getElementById("recentErrorsList");
+const errorLogHint = document.getElementById("errorLogHint");
+const errorFilter = document.getElementById("errorFilter");
+const clearErrorsBtn = document.getElementById("clearErrorsBtn");
+const exportErrorsBtn = document.getElementById("exportErrorsBtn");
 const defaultImageDurationInput = document.getElementById("defaultImageDurationInput");
 const applyDefaultDurationBtn = document.getElementById("applyDefaultDurationBtn");
 const photoGroupForm = document.getElementById("photoGroupForm");
@@ -67,10 +70,35 @@ let lastDiskAlertLevel = "ok";
 let uploadInProgress = false;
 let uploadQueue = [];
 let pendingDefaultImageDuration = null;
-const UPLOAD_MODE_KEY = "admin-upload-mode";
+const ADMIN_TOKEN_KEY = "admin-api-token";
 let renamingVideo = null;
 let queueWasRunning = false;
 let tvModePreference = "auto";
+let authWarningShown = false;
+let recentErrorsCache = [];
+
+function readAdminToken() {
+  try {
+    return String(localStorage.getItem(ADMIN_TOKEN_KEY) || "").trim();
+  } catch (error) {
+    return "";
+  }
+}
+
+function persistAdminTokenFromUrl() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const token = String(params.get("token") || "").trim();
+    if (!token) return;
+    localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    params.delete("token");
+    const nextQuery = params.toString();
+    const nextUrl = `${window.location.pathname}${nextQuery ? `?${nextQuery}` : ""}`;
+    window.history.replaceState({}, "", nextUrl);
+  } catch (error) {
+    // ignore
+  }
+}
 
 const TV_MODE_BREAKPOINT = 1300;
 
@@ -130,6 +158,10 @@ function uploadFileWithProgress(file, onProgress) {
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("POST", "/api/videos");
+    const token = readAdminToken();
+    if (token) {
+      xhr.setRequestHeader("x-admin-token", token);
+    }
 
     xhr.upload.addEventListener("progress", (event) => {
       if (event.lengthComputable) {
@@ -224,7 +256,7 @@ function showActionToast(message, actionLabel, onAction, variant = "error") {
 }
 
 function setStatus(message) {
-  statusEl.textContent = message;
+  statusEl.textContent = message || "Listo";
 }
 
 function setFeedback(message, variant = "success") {
@@ -275,64 +307,46 @@ function getDiskLevel(usedPercent) {
   return "ok";
 }
 
+async function apiRequest(url, options = {}) {
+  const headers = new Headers(options.headers || {});
+  const token = readAdminToken();
+  if (token) headers.set("x-admin-token", token);
+
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401 && !authWarningShown) {
+    authWarningShown = true;
+    setFeedback("Sesion admin no autorizada. Abre /admin?token=TU_TOKEN", "error");
+    showToast("No autorizado. Falta token admin.", "error");
+  }
+  if (res.ok) {
+    authWarningShown = false;
+  }
+  return res;
+}
+
+async function fetchJson(url, options) {
+  const res = await apiRequest(url, options);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status} ${url}`);
+  }
+  return res.json();
+}
+
 async function fetchPlaylist() {
-  const res = await fetch("/api/playlist");
-  playlist = await res.json();
+  playlist = await fetchJson("/api/playlist");
   setPlaylistDirty(false);
   renderPlaylist();
 }
 
 async function fetchLibrary() {
-  const res = await fetch("/api/videos");
-  libraryItems = await res.json();
+  libraryItems = await fetchJson("/api/videos");
   renderLibrary();
 }
 
 async function fetchPhotoGroups() {
   if (!photoGroupList) return;
-  const res = await fetch("/api/photo-groups");
-  photoGroups = await res.json();
+  photoGroups = await fetchJson("/api/photo-groups");
   renderPhotoGroups();
-  renderPhotoGroupSelect();
-}
-
-function renderPhotoGroupSelect() {
-  if (!photoGroupSelect) return;
-  photoGroupSelect.innerHTML = "";
-  if (!photoGroups.length) {
-    const empty = document.createElement("div");
-    empty.className = "empty";
-    empty.textContent = "Crea un grupo para subir fotos.";
-    photoGroupSelect.appendChild(empty);
-    if (groupSelectHelp) {
-      groupSelectHelp.textContent = "No hay grupos disponibles. Crea uno abajo.";
-    }
-    return;
-  }
-  if (groupSelectHelp) {
-    groupSelectHelp.textContent = "Selecciona uno o varios grupos.";
-  }
-  photoGroups.forEach((group) => {
-    const label = document.createElement("label");
-    label.className = "group-option";
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.value = group.id;
-
-    const img = document.createElement("img");
-    const firstPhoto = (group.photos || [])[0];
-    img.src = firstPhoto ? `/uploads/${firstPhoto.filename}` : "";
-    img.alt = "";
-
-    const text = document.createElement("span");
-    text.textContent = group.title;
-
-    label.appendChild(checkbox);
-    label.appendChild(img);
-    label.appendChild(text);
-    photoGroupSelect.appendChild(label);
-  });
 }
 
 function setPlaylistDirty(value) {
@@ -370,13 +384,7 @@ function handleDefaultImageDurationInput() {
 }
 
 async function fetchHealthAndStats() {
-  const [healthRes, statsRes] = await Promise.all([fetch("/api/health"), fetch("/api/stats")]);
-  if (!healthRes.ok || !statsRes.ok) {
-    throw new Error("No se pudo consultar salud y metricas");
-  }
-
-  const health = await healthRes.json();
-  const stats = await statsRes.json();
+  const [health, stats] = await Promise.all([fetchJson("/api/health"), fetchJson("/api/stats")]);
   renderControlCenter(health, stats);
 }
 
@@ -449,7 +457,38 @@ function renderControlCenter(health, stats) {
   metricLastError.textContent = health.lastError
     ? `Ultimo error: ${health.lastError}`
     : "Sin errores recientes";
-  metricLastUpdate.textContent = formatLastUpdate(new Date().toISOString());
+  metricLastUpdate.textContent = formatLastUpdate(health.playerLastUpdate);
+
+  if (recentErrorsList) {
+    recentErrorsCache = Array.isArray(stats.recentErrors) ? stats.recentErrors : [];
+    recentErrorsList.innerHTML = "";
+    const filter = errorFilter?.value || "all";
+    const filtered = recentErrorsCache.filter((entry) => {
+      if (filter === "all") return true;
+      return String(entry.mediaType || "unknown") === filter;
+    });
+    const recent = filtered.slice(-5).reverse();
+    if (!recent.length) {
+      const li = document.createElement("li");
+      li.textContent =
+        filter === "all"
+          ? "Sin errores reportados en las ultimas 24h."
+          : `Sin errores del tipo ${filter} en las ultimas 24h.`;
+      recentErrorsList.appendChild(li);
+    } else {
+      recent.forEach((entry) => {
+        const li = document.createElement("li");
+        const time = formatLastUpdate(entry.timestamp || "").replace("Actualizado ", "");
+        const idPart = entry.videoId ? ` [${entry.videoId}]` : "";
+        const kind = entry.mediaType ? `(${entry.mediaType}) ` : "";
+        li.textContent = `${time} - ${kind}${entry.message || "unknown"}${idPart}`;
+        recentErrorsList.appendChild(li);
+      });
+    }
+    if (errorLogHint) {
+      errorLogHint.textContent = "Solo cuenta errores enviados por /api/player/event.";
+    }
+  }
 
   if (defaultImageDurationInput) {
     const defaultDuration = Number(health?.settings?.imageDefaultDuration || 15);
@@ -459,6 +498,28 @@ function renderControlCenter(health, stats) {
       defaultImageDurationInput.dataset.initial = `${defaultDuration}`;
     }
   }
+}
+
+function exportErrorsAsJson() {
+  const filter = errorFilter?.value || "all";
+  const data = recentErrorsCache.filter((entry) =>
+    filter === "all" ? true : String(entry.mediaType || "unknown") === filter
+  );
+  const payload = {
+    exportedAt: new Date().toISOString(),
+    filter,
+    count: data.length,
+    errors: data
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `errors-24h-${filter}-${Date.now()}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
 }
 
 function renderProcessingMeter(queue) {
@@ -550,7 +611,7 @@ function renderPlaylist() {
 
     item.addEventListener("dragover", (event) => {
       event.preventDefault();
-      if (draggedPlaylistId && draggedPlaylistId !== video.id) {
+      if (draggedPlaylistId && draggedPlaylistId !== entryKey) {
         item.classList.add("drag-over");
       }
     });
@@ -609,6 +670,7 @@ function renderPlaylist() {
     }
 
     const removeBtn = document.createElement("button");
+    removeBtn.className = "save-config-btn danger";
     removeBtn.type = "button";
     removeBtn.textContent = "Quitar";
     removeBtn.addEventListener("click", () => {
@@ -661,9 +723,19 @@ playlistEl.addEventListener("drop", () => {
     (entry) => entry.type === draggedLibraryEntry.type && entry.id === draggedLibraryEntry.id
   );
   if (!exists) {
+    let source = null;
+    if (draggedLibraryEntry.type === "photoGroup") {
+      source = photoGroups.find((group) => group.id === draggedLibraryEntry.id) || null;
+    } else {
+      source = libraryItems.find((item) => item.id === draggedLibraryEntry.id) || null;
+    }
     playlist.push({
       id: draggedLibraryEntry.id,
-      type: draggedLibraryEntry.type
+      type: draggedLibraryEntry.type,
+      title: source?.title || "Sin titulo",
+      displayDuration: source?.displayDuration || null,
+      footer: source?.footer || "",
+      photos: source?.photos || []
     });
     renderPlaylist();
     setPlaylistDirty(true);
@@ -692,22 +764,45 @@ function getFilteredLibraryItems() {
 }
 
 function updateFilterCounts() {
-  const total = libraryItems.length;
+  const total = libraryItems.length + photoGroups.length;
   const videos = libraryItems.filter((item) => (item.type || "video") === "video").length;
   const images = libraryItems.filter((item) => (item.type || "video") === "image").length;
+  const groups = photoGroups.length;
   countAll.textContent = `${total}`;
   countVideo.textContent = `${videos}`;
   countImage.textContent = `${images}`;
+  if (countGroup) countGroup.textContent = `${groups}`;
 }
 
 function renderLibrary() {
   updateFilterCounts();
+  if (libraryFilter === "group") {
+    if (libraryEl) {
+      libraryEl.hidden = true;
+      libraryEl.innerHTML = "";
+    }
+    if (groupPanel) groupPanel.hidden = false;
+    return;
+  }
+
+  if (libraryEl) {
+    libraryEl.hidden = false;
+  }
+  if (groupPanel) {
+    groupPanel.hidden = true;
+  }
+
   const videos = getFilteredLibraryItems();
   libraryEl.innerHTML = "";
   if (!videos.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No hay contenido para este filtro.";
+    empty.textContent =
+      libraryFilter === "video"
+        ? "No hay videos en la biblioteca."
+        : libraryFilter === "image"
+          ? "No hay imagenes en la biblioteca."
+          : "No hay contenido en la biblioteca.";
     libraryEl.appendChild(empty);
     return;
   }
@@ -786,11 +881,13 @@ function renderLibrary() {
     }
 
     const deleteBtn = document.createElement("button");
+    deleteBtn.className = "danger";
     deleteBtn.textContent = "Eliminar";
     deleteBtn.addEventListener("click", () => deleteVideo(video.id));
     actions.appendChild(deleteBtn);
 
     const renameBtn = document.createElement("button");
+    renameBtn.className = "subtle";
     renameBtn.textContent = "Renombrar";
     renameBtn.addEventListener("click", () => renameMedia(video));
     actions.appendChild(renameBtn);
@@ -804,20 +901,19 @@ function renderLibrary() {
   });
 }
 
-if (groupPanel) {
-  groupPanel.hidden = libraryFilter !== "group";
-}
-if (libraryEl) {
-  libraryEl.hidden = libraryFilter === "group";
-}
-
 function renderPhotoGroups() {
   if (!photoGroupList) return;
   photoGroupList.innerHTML = "";
+  if (groupSelectHelp) {
+    groupSelectHelp.textContent =
+      photoGroups.length > 0
+        ? "Gestiona grupos desde Biblioteca > Grupos."
+        : "No hay grupos. Crea uno en Biblioteca > Grupos.";
+  }
   if (!photoGroups.length) {
     const empty = document.createElement("div");
     empty.className = "empty";
-    empty.textContent = "No hay grupos de fotos.";
+    empty.textContent = "No hay grupos de fotos. Crea uno y usa el modo 'Fotos para grupo'.";
     photoGroupList.appendChild(empty);
     return;
   }
@@ -826,14 +922,31 @@ function renderPhotoGroups() {
     const card = document.createElement("div");
     card.className = "group-card";
 
-    const title = document.createElement("h3");
-    title.textContent = group.title;
+    const details = document.createElement("details");
+    details.className = "group-details";
 
-    const footer = document.createElement("p");
-    footer.textContent = group.footer ? `Pie: ${group.footer}` : "Sin pie de pagina";
+    const summary = document.createElement("summary");
+    summary.className = "group-header";
 
-    const count = document.createElement("p");
-    count.textContent = `Fotos: ${(group.photos || []).length}`;
+    const heading = document.createElement("h3");
+    heading.textContent = group.title;
+
+    const meta = document.createElement("div");
+    meta.className = "group-meta";
+    const photoChip = document.createElement("span");
+    photoChip.className = "group-chip";
+    photoChip.textContent = `${(group.photos || []).length} fotos`;
+    const timeChip = document.createElement("span");
+    timeChip.className = "group-chip";
+    timeChip.textContent = `${group.displayDuration || 30}s bloque`;
+    meta.appendChild(photoChip);
+    meta.appendChild(timeChip);
+
+    summary.appendChild(heading);
+    summary.appendChild(meta);
+
+    const body = document.createElement("div");
+    body.className = "group-body";
 
     const durationRow = document.createElement("div");
     durationRow.className = "group-row";
@@ -858,6 +971,58 @@ function renderPhotoGroups() {
     titleInput.value = group.title || "";
     titleInput.placeholder = "Titulo";
 
+    const fields = document.createElement("div");
+    fields.className = "group-fields";
+    fields.appendChild(titleInput);
+    fields.appendChild(footerInput);
+    fields.appendChild(durationRow);
+
+    const uploadRow = document.createElement("div");
+    uploadRow.className = "group-upload-row";
+    const uploadInfo = document.createElement("span");
+    uploadInfo.className = "group-upload-info";
+    uploadInfo.textContent = "Sube varias fotos al grupo";
+
+    const uploadBtn = document.createElement("button");
+    uploadBtn.type = "button";
+    uploadBtn.className = "save-config-btn primary";
+    uploadBtn.textContent = "Subir fotos";
+
+    const uploadInput = document.createElement("input");
+    uploadInput.type = "file";
+    uploadInput.accept = ".jpg,.jpeg,.png,.webp,.gif";
+    uploadInput.multiple = true;
+    uploadInput.hidden = true;
+    uploadBtn.addEventListener("click", () => uploadInput.click());
+    uploadInput.addEventListener("change", async () => {
+      const files = Array.from(uploadInput.files || []);
+      if (!files.length) return;
+      uploadBtn.disabled = true;
+      setSystemProgress(true, 0, `Subiendo fotos a ${group.title}`, `${files.length} archivo(s)`);
+      try {
+        await uploadPhotosToGroupWithProgress(group.id, files, (percent) => {
+          setSystemProgress(
+            true,
+            percent,
+            `Subiendo fotos a ${group.title}`,
+            `${Math.round(percent)}% · ${files.length} archivo(s)`
+          );
+        });
+        await fetchPhotoGroups();
+        setFeedback(`Fotos cargadas en ${group.title}`, "success");
+      } catch (error) {
+        setFeedback("No se pudo subir fotos al grupo", "error");
+      } finally {
+        uploadBtn.disabled = false;
+        uploadInput.value = "";
+        setSystemProgress(false, 0, "", "");
+      }
+    });
+
+    uploadRow.appendChild(uploadInfo);
+    uploadRow.appendChild(uploadBtn);
+    uploadRow.appendChild(uploadInput);
+
     const actions = document.createElement("div");
     actions.className = "group-actions";
 
@@ -867,14 +1032,14 @@ function renderPhotoGroups() {
       const thumb = document.createElement("div");
       thumb.className = "group-thumb";
       const img = document.createElement("img");
-      img.src = `/uploads/${photo.filename}`;
+      img.src = `/api/photo-groups/${group.id}/photos/${photo.id}/stream`;
       img.alt = "";
       thumb.appendChild(img);
       const del = document.createElement("button");
       del.type = "button";
       del.textContent = "x";
       del.addEventListener("click", async () => {
-        const res = await fetch(`/api/photo-groups/${group.id}/photos/${photo.id}`, {
+        const res = await apiRequest(`/api/photo-groups/${group.id}/photos/${photo.id}`, {
           method: "DELETE"
         });
         if (!res.ok) {
@@ -887,11 +1052,18 @@ function renderPhotoGroups() {
       photoGrid.appendChild(thumb);
     });
 
+    if (!(group.photos || []).length) {
+      const emptyPhotos = document.createElement("div");
+      emptyPhotos.className = "group-empty-photos";
+      emptyPhotos.textContent = "Sin fotos aun. Usa el modo de carga 'Fotos para grupo'.";
+      photoGrid.appendChild(emptyPhotos);
+    }
+
     const inPlaylist = playlist.some(
       (entry) => entry.type === "photoGroup" && entry.id === group.id
     );
     const addBtn = document.createElement("button");
-    addBtn.className = "save-config-btn primary";
+    addBtn.className = inPlaylist ? "save-config-btn subtle" : "save-config-btn primary";
     addBtn.type = "button";
     addBtn.textContent = inPlaylist ? "Quitar de playlist" : "Agregar a playlist";
     addBtn.addEventListener("click", () => {
@@ -914,11 +1086,11 @@ function renderPhotoGroups() {
     });
 
     const saveBtn = document.createElement("button");
-    saveBtn.className = "save-config-btn";
+    saveBtn.className = "save-config-btn primary";
     saveBtn.type = "button";
     saveBtn.textContent = "Guardar";
     saveBtn.addEventListener("click", async () => {
-      const res = await fetch(`/api/photo-groups/${group.id}`, {
+      const res = await apiRequest(`/api/photo-groups/${group.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -936,7 +1108,7 @@ function renderPhotoGroups() {
     });
 
     const deleteBtn = document.createElement("button");
-    deleteBtn.className = "save-config-btn";
+    deleteBtn.className = "save-config-btn danger";
     deleteBtn.type = "button";
     deleteBtn.textContent = "Eliminar";
     deleteBtn.addEventListener("click", () => deletePhotoGroup(group.id));
@@ -945,31 +1117,49 @@ function renderPhotoGroups() {
     actions.appendChild(saveBtn);
     actions.appendChild(deleteBtn);
 
-    card.appendChild(title);
-    card.appendChild(titleInput);
-    card.appendChild(footer);
-    card.appendChild(footerInput);
-    card.appendChild(durationRow);
-    card.appendChild(count);
-    card.appendChild(photoGrid);
-    card.appendChild(actions);
+    body.appendChild(fields);
+    body.appendChild(uploadRow);
+    body.appendChild(photoGrid);
+    body.appendChild(actions);
+
+    details.appendChild(summary);
+    details.appendChild(body);
+    card.appendChild(details);
     photoGroupList.appendChild(card);
   });
 }
 
-async function uploadPhotosToGroup(groupId, files) {
-  const formData = new FormData();
-  files.forEach((file) => formData.append("photos", file));
-  const res = await fetch(`/api/photo-groups/${groupId}/photos`, {
-    method: "POST",
-    body: formData
+function uploadPhotosToGroupWithProgress(groupId, files, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `/api/photo-groups/${groupId}/photos`);
+    const token = readAdminToken();
+    if (token) xhr.setRequestHeader("x-admin-token", token);
+
+    xhr.upload.addEventListener("progress", (event) => {
+      if (event.lengthComputable && typeof onProgress === "function") {
+        onProgress((event.loaded / event.total) * 100);
+      }
+    });
+
+    xhr.onerror = () => reject(new Error("network"));
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+        return;
+      }
+      try {
+        const payload = JSON.parse(xhr.responseText || "{}");
+        reject(new Error(payload.error || `HTTP ${xhr.status}`));
+      } catch (error) {
+        reject(new Error(`HTTP ${xhr.status}`));
+      }
+    };
+
+    const formData = new FormData();
+    files.forEach((file) => formData.append("photos", file));
+    xhr.send(formData);
   });
-  if (!res.ok) {
-    setFeedback("No se pudo subir fotos", "error");
-    return;
-  }
-  await fetchPhotoGroups();
-  setFeedback("Fotos cargadas", "success");
 }
 
 async function deletePhotoGroup(groupId) {
@@ -977,7 +1167,7 @@ async function deletePhotoGroup(groupId) {
     "Eliminar grupo de fotos",
     "Eliminar",
     async () => {
-      const res = await fetch(`/api/photo-groups/${groupId}`, { method: "DELETE" });
+      const res = await apiRequest(`/api/photo-groups/${groupId}`, { method: "DELETE" });
       if (!res.ok) {
         setFeedback("No se pudo eliminar grupo", "error");
         return;
@@ -997,7 +1187,7 @@ async function updateImageDuration(id, duration, inputEl) {
     return;
   }
 
-  const res = await fetch(`/api/videos/${id}`, {
+  const res = await apiRequest(`/api/videos/${id}`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ displayDuration: value })
@@ -1025,7 +1215,7 @@ async function deleteVideo(id) {
     "Eliminar",
     async () => {
       pendingDurationUpdates.delete(id);
-      const res = await fetch(`/api/videos/${id}`, { method: "DELETE" });
+      const res = await apiRequest(`/api/videos/${id}`, { method: "DELETE" });
       if (!res.ok) {
         setFeedback("No se pudo eliminar", "error");
         return;
@@ -1068,28 +1258,33 @@ async function submitRename() {
   }
 
   renameSaveBtn.disabled = true;
-  const res = await fetch(`/api/videos/${renamingVideo.id}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ title })
-  });
-  renameSaveBtn.disabled = false;
+  try {
+    const res = await apiRequest(`/api/videos/${renamingVideo.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title })
+    });
 
-  if (!res.ok) {
-    let message = "No se pudo renombrar";
-    try {
-      const payload = await res.json();
-      if (payload?.error) message = `No se pudo renombrar: ${payload.error}`;
-    } catch (error) {
-      // ignore parse errors
+    if (!res.ok) {
+      let message = "No se pudo renombrar";
+      try {
+        const payload = await res.json();
+        if (payload?.error) message = `No se pudo renombrar: ${payload.error}`;
+      } catch (error) {
+        // ignore parse errors
+      }
+      setFeedback(message, "error");
+      return;
     }
-    setFeedback(message, "error");
-    return;
-  }
 
-  closeRenameModal();
-  await refreshAll();
-  setFeedback("Nombre actualizado", "success");
+    closeRenameModal();
+    await refreshAll();
+    setFeedback("Nombre actualizado", "success");
+  } catch (error) {
+    setFeedback("No se pudo renombrar", "error");
+  } finally {
+    renameSaveBtn.disabled = false;
+  }
 }
 
 async function savePlaylistOrder() {
@@ -1099,31 +1294,37 @@ async function savePlaylistOrder() {
   saveStateEl.classList.remove("is-dirty", "is-saved");
   saveStateEl.classList.add("is-saving");
   saveStateEl.textContent = "Guardando";
-  const res = await fetch("/api/playlist", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      order: playlist.map((item) => ({ id: item.id, type: item.type || "video" }))
-    })
-  });
-  if (!res.ok) {
+  try {
+    const res = await apiRequest("/api/playlist", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        order: playlist.map((item) => ({ id: item.id, type: item.type || "video" }))
+      })
+    });
+    if (!res.ok) {
+      setFeedback("No se pudo guardar el orden", "error");
+      saveStateEl.classList.remove("is-saving");
+      saveStateEl.classList.add("is-dirty");
+      saveStateEl.textContent = "Cambios sin guardar";
+      return;
+    }
+    setPlaylistDirty(false);
+    saveOrderBtn.classList.add("is-saved");
+    saveOrderBtn.textContent = "Guardado";
+    setTimeout(() => {
+      saveOrderBtn.classList.remove("is-saved");
+      saveOrderBtn.textContent = "Guardar orden";
+    }, 900);
+    setFeedback("Playlist guardada", "success");
+  } catch (error) {
     setFeedback("No se pudo guardar el orden", "error");
+  } finally {
     saveOrderBtn.classList.remove("is-saving");
-    saveOrderBtn.textContent = "Guardar orden";
-    saveStateEl.classList.remove("is-saving");
-    saveStateEl.classList.add("is-dirty");
-    saveStateEl.textContent = "Cambios sin guardar";
-    return;
+    if (saveOrderBtn.textContent === "Guardando...") {
+      saveOrderBtn.textContent = "Guardar orden";
+    }
   }
-  setPlaylistDirty(false);
-  saveOrderBtn.classList.remove("is-saving");
-  saveOrderBtn.classList.add("is-saved");
-  saveOrderBtn.textContent = "Guardado";
-  setTimeout(() => {
-    saveOrderBtn.classList.remove("is-saved");
-    saveOrderBtn.textContent = "Guardar orden";
-  }, 900);
-  setFeedback("Playlist guardada", "success");
 }
 
 async function savePendingDurations() {
@@ -1131,7 +1332,7 @@ async function savePendingDurations() {
   const entries = Array.from(pendingDurationUpdates.entries());
   for (const [id, duration] of entries) {
     const value = Math.round(Number(duration));
-    const res = await fetch(`/api/videos/${id}`, {
+    const res = await apiRequest(`/api/videos/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ displayDuration: value })
@@ -1151,7 +1352,7 @@ async function saveDefaultImageDuration() {
     throw new Error("Duracion por defecto invalida (3-300s)");
   }
 
-  const res = await fetch("/api/settings", {
+  const res = await apiRequest("/api/settings", {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ imageDefaultDuration: value })
@@ -1201,7 +1402,7 @@ async function cleanupOrphanThumbnails() {
       cleanupThumbsBtn.disabled = true;
       cleanupThumbsBtn.textContent = "Limpiando...";
       try {
-        const res = await fetch("/api/maintenance/cleanup-thumbnails", { method: "POST" });
+        const res = await apiRequest("/api/maintenance/cleanup-thumbnails", { method: "POST" });
         if (!res.ok) {
           setFeedback("No se pudo limpiar thumbnails", "error");
           return;
@@ -1211,7 +1412,7 @@ async function cleanupOrphanThumbnails() {
         setFeedback(`Thumbnails limpiados: ${payload.removed || 0}`, "success");
       } finally {
         cleanupThumbsBtn.disabled = false;
-        cleanupThumbsBtn.textContent = "Limpiar thumbnails";
+        cleanupThumbsBtn.textContent = "Limpiar thumbnails huerfanos";
       }
     },
     "error"
@@ -1257,22 +1458,6 @@ uploadZone.addEventListener("drop", (event) => {
 
 async function handleUploadFiles(files) {
   if (!files.length) return;
-  const mode = uploadMode?.value || "media";
-  if (mode === "group") {
-    const selected = Array.from(
-      photoGroupSelect?.querySelectorAll("input[type=checkbox]:checked") || []
-    ).map((input) => input.value);
-    if (!selected.length) {
-      setFeedback("Selecciona un grupo de fotos", "error");
-      return;
-    }
-    setSystemProgress(true, 0, "Subiendo fotos", `${files.length} archivo(s)`);
-    for (const groupId of selected) {
-      await uploadPhotosToGroup(groupId, files);
-    }
-    setSystemProgress(false, 0, "", "");
-    return;
-  }
   enqueueUploads(files);
 }
 
@@ -1281,36 +1466,8 @@ if (defaultImageDurationInput) {
   defaultImageDurationInput.addEventListener("change", handleDefaultImageDurationInput);
 }
 
-if (uploadMode && groupSelectWrap) {
-  uploadMode.addEventListener("change", () => {
-    const mode = uploadMode.value;
-    try {
-      localStorage.setItem(UPLOAD_MODE_KEY, mode);
-    } catch (error) {
-      // ignore
-    }
-    groupSelectWrap.hidden = mode !== "group";
-    videoInput.accept =
-      mode === "group"
-        ? ".jpg,.jpeg,.png,.webp,.gif"
-        : ".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif";
-    if (mode === "group") {
-      if (groupPanel) groupPanel.hidden = false;
-      renderPhotoGroups();
-      setStatus("Selecciona grupos y sube fotos");
-    } else if (groupPanel) {
-      groupPanel.hidden = true;
-    }
-  });
-  try {
-    const savedMode = localStorage.getItem(UPLOAD_MODE_KEY);
-    if (savedMode === "media" || savedMode === "group") {
-      uploadMode.value = savedMode;
-    }
-  } catch (error) {
-    // ignore
-  }
-  uploadMode.dispatchEvent(new Event("change"));
+if (groupSelectHelp) {
+  groupSelectHelp.textContent = "Para fotos por grupos, abre Biblioteca > Grupos.";
 }
 
 if (applyDefaultDurationBtn) {
@@ -1318,7 +1475,7 @@ if (applyDefaultDurationBtn) {
     if (!confirm("Aplicar la duracion por defecto a todas las imagenes?")) return;
     applyDefaultDurationBtn.disabled = true;
     try {
-      const res = await fetch("/api/images/apply-default", { method: "POST" });
+      const res = await apiRequest("/api/images/apply-default", { method: "POST" });
       if (!res.ok) {
         setFeedback("No se pudo aplicar duracion por defecto", "error");
         return;
@@ -1341,7 +1498,7 @@ if (photoGroupForm) {
       setFeedback("El titulo del grupo es obligatorio", "error");
       return;
     }
-    const res = await fetch("/api/photo-groups", {
+    const res = await apiRequest("/api/photo-groups", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ title, footer })
@@ -1363,7 +1520,7 @@ if (photoAudioInput) {
     if (!file) return;
     const formData = new FormData();
     formData.append("audio", file);
-    const res = await fetch("/api/audio/background", { method: "POST", body: formData });
+    const res = await apiRequest("/api/audio/background", { method: "POST", body: formData });
     if (!res.ok) {
       setFeedback("No se pudo subir la musica", "error");
     } else {
@@ -1375,12 +1532,41 @@ if (photoAudioInput) {
 
 if (removePhotoAudioBtn) {
   removePhotoAudioBtn.addEventListener("click", async () => {
-    const res = await fetch("/api/audio/background", { method: "DELETE" });
+    const res = await apiRequest("/api/audio/background", { method: "DELETE" });
     if (!res.ok) {
       setFeedback("No se pudo quitar la musica", "error");
       return;
     }
     setFeedback("Musica eliminada", "success");
+  });
+}
+
+if (errorFilter) {
+  errorFilter.addEventListener("change", async () => {
+    try {
+      await fetchHealthAndStats();
+    } catch (error) {
+      setFeedback("No se pudo filtrar errores", "error");
+    }
+  });
+}
+
+if (clearErrorsBtn) {
+  clearErrorsBtn.addEventListener("click", async () => {
+    const res = await apiRequest("/api/stats/errors", { method: "DELETE" });
+    if (!res.ok) {
+      setFeedback("No se pudo limpiar errores", "error");
+      return;
+    }
+    await fetchHealthAndStats();
+    setFeedback("Errores 24h limpiados", "success");
+  });
+}
+
+if (exportErrorsBtn) {
+  exportErrorsBtn.addEventListener("click", () => {
+    exportErrorsAsJson();
+    setStatus("Export de errores generado");
   });
 }
 
@@ -1397,7 +1583,8 @@ async function processUploadQueue() {
   if (!uploadQueue.length) return;
   uploadInProgress = true;
   const submitBtn = uploadForm.querySelector("button");
-  let uploadFailed = false;
+  let failed = 0;
+  let success = 0;
   const total = uploadQueue.length;
   let index = 0;
 
@@ -1426,16 +1613,21 @@ async function processUploadQueue() {
         message = "Formato no soportado";
       }
       setFeedback(message, "error");
-      uploadFailed = true;
-      break;
+      failed += 1;
+      continue;
     }
+    success += 1;
   }
 
   uploadInProgress = false;
   uploadCount.textContent = uploadQueue.length ? `${uploadQueue.length} en cola` : "0 archivos";
   await refreshAll();
-  if (!uploadFailed && !uploadQueue.length) {
-    setFeedback("Carga completada", "success");
+  if (!uploadQueue.length) {
+    if (failed > 0) {
+      setFeedback(`Carga finalizada: ${success} ok, ${failed} con error`, "error");
+    } else {
+      setFeedback("Carga completada", "success");
+    }
     setSystemProgress(false, 0, "", "");
   }
 }
@@ -1500,11 +1692,8 @@ libraryToolbar.addEventListener("click", (event) => {
   libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.classList.toggle("is-active", btn === button);
   });
-  if (groupPanel) {
-    groupPanel.hidden = nextFilter !== "group";
-  }
-  if (libraryEl) {
-    libraryEl.hidden = nextFilter === "group";
+  if (libraryFilter === "group") {
+    renderPhotoGroups();
   }
   renderLibrary();
 });
@@ -1512,6 +1701,8 @@ libraryToolbar.addEventListener("click", (event) => {
 async function refreshAll() {
   await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats(), fetchPhotoGroups()]);
 }
+
+persistAdminTokenFromUrl();
 
 refreshAll().catch(() => {
   setStatus("Error cargando datos");

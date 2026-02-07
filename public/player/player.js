@@ -296,6 +296,7 @@ class Player24x7 {
           collageFooter.textContent = media.footer || "";
         }
         await this.startPhotoAudio();
+        if (attemptId !== this.playAttemptId) return;
       } else {
         imageEl.hidden = true;
         imageEl.style.display = "none";
@@ -307,12 +308,15 @@ class Player24x7 {
         videoEl.style.display = "block";
         this.resetVideoElement();
         await this.loadVideoSource(media);
+        if (attemptId !== this.playAttemptId) return;
         this.startStallGuard(attemptId);
         await this.attemptAutoplay();
+        if (attemptId !== this.playAttemptId) return;
         this.stopPhotoAudio();
       }
 
-       this.updateInfo(media);
+      if (attemptId !== this.playAttemptId) return;
+      this.updateInfo(media);
       if (!this.infoPinned) {
         infoOverlay.classList.remove("visible");
       }
@@ -518,6 +522,16 @@ class Player24x7 {
           this.imageStartedAt = Date.now() - target * 1000;
           this.imageTimer = setTimeout(() => this.playNext(), remaining * 1000);
         }
+      } else if (this.currentItemType() === "photoGroup") {
+        const duration = this.groupDuration || 0;
+        const target = Math.max(0, Math.min(duration, ratio * duration));
+        const remaining = duration - target;
+        this.groupRemaining = remaining;
+        if (this.groupTimer) clearTimeout(this.groupTimer);
+        if (this.groupPlaying) {
+          this.groupStartedAt = Date.now() - target * 1000;
+          this.groupTimer = setTimeout(() => this.playNext(), remaining * 1000);
+        }
       } else {
         videoEl.currentTime = ratio * (videoEl.duration || 0);
       }
@@ -669,7 +683,11 @@ class Player24x7 {
         photoAudio.muted = false;
         photoAudio.volume = 1;
       }
-      await videoEl.play();
+      if (this.currentItemType() === "photoGroup") {
+        await this.startPhotoAudio();
+      } else {
+        await videoEl.play();
+      }
       this.hideUnmuteOverlay();
     } catch (error) {
       this.showUnmuteOverlay();
@@ -712,7 +730,12 @@ class Player24x7 {
     if (video.codec) metaParts.push(`Video ${video.codec.toUpperCase()}`);
     if (video.audioCodec) metaParts.push(`Audio ${video.audioCodec.toUpperCase()}`);
     metaParts.push(`ID ${video.id}`);
-    videoMeta.innerHTML = metaParts.map((text) => `<span>${text}</span>`).join("");
+    videoMeta.innerHTML = "";
+    metaParts.forEach((text) => {
+      const chip = document.createElement("span");
+      chip.textContent = text;
+      videoMeta.appendChild(chip);
+    });
   }
 
   updateProgress() {
@@ -769,7 +792,7 @@ class Player24x7 {
     clearTimeout(this.infoTimer);
     this.infoTimer = setTimeout(() => {
       infoOverlay.classList.remove("visible");
-    }, force ? 5000 : 5000);
+    }, force ? 5000 : 3000);
   }
 
   toggleInfo() {
@@ -864,10 +887,10 @@ class Player24x7 {
     const doc = document;
     if (doc.fullscreenElement) {
       doc.exitFullscreen();
-    } else if (videoEl.requestFullscreen) {
-      document.documentElement.requestFullscreen();
-    } else if (videoEl.webkitRequestFullscreen) {
-      document.documentElement.webkitRequestFullscreen();
+    } else if (doc.documentElement.requestFullscreen) {
+      doc.documentElement.requestFullscreen();
+    } else if (doc.documentElement.webkitRequestFullscreen) {
+      doc.documentElement.webkitRequestFullscreen();
     }
   }
 
@@ -875,6 +898,10 @@ class Player24x7 {
     setInterval(() => {
       if (this.currentItemType() === "image") {
         if (!this.imagePlaying && !this.userPaused) {
+          this.togglePlay();
+        }
+      } else if (this.currentItemType() === "photoGroup") {
+        if (!this.groupPlaying && !this.userPaused) {
           this.togglePlay();
         }
       } else if (videoEl.paused && !this.userPaused) {
@@ -892,7 +919,18 @@ class Player24x7 {
       mediaType,
       position: `${this.currentIndex + 1}/${this.playlist.length}`,
       videoTime: this.getCurrentMediaTime(),
-      state: mediaType === "image" ? (this.imagePlaying ? "playing" : "paused") : videoEl.paused ? "paused" : "playing"
+      state:
+        mediaType === "image"
+          ? this.imagePlaying
+            ? "playing"
+            : "paused"
+          : mediaType === "photoGroup"
+            ? this.groupPlaying
+              ? "playing"
+              : "paused"
+            : videoEl.paused
+              ? "paused"
+              : "playing"
     });
   }
 
@@ -910,7 +948,18 @@ class Player24x7 {
         body: JSON.stringify({
           currentVideoId: this.currentVideoId(),
           currentTime: this.getCurrentMediaTime(),
-          state: mediaType === "image" ? (this.imagePlaying ? "playing" : "paused") : videoEl.paused ? "paused" : "playing",
+          state:
+            mediaType === "image"
+              ? this.imagePlaying
+                ? "playing"
+                : "paused"
+              : mediaType === "photoGroup"
+                ? this.groupPlaying
+                  ? "playing"
+                  : "paused"
+                : videoEl.paused
+                  ? "paused"
+                  : "playing",
           mediaType
         })
       });

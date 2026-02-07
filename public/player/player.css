@@ -554,10 +554,6 @@ body.tizen .loading-spinner {
   display: none !important;
 }
 
-.error-overlay[hidden] {
-  display: none !important;
-}
-
 @keyframes spin {
   to {
     transform: translate(-50%, -50%) rotate(360deg);
