@@ -8,8 +8,7 @@ const playlistEl = document.getElementById("playlist");
 const libraryEl = document.getElementById("library");
 const saveOrderBtn = document.getElementById("saveOrderBtn");
 const tvModeBtn = document.getElementById("tvModeBtn");
-const themeModeBtn = document.getElementById("themeModeBtn");
-const pairTvBtn = document.getElementById("pairTvBtn");
+const themeModeSelect = document.getElementById("themeModeSelect");
 const authTokenBtn = document.getElementById("authTokenBtn");
 const saveConfigBtn = document.getElementById("saveConfigBtn");
 const cleanupThumbsBtn = document.getElementById("cleanupThumbsBtn");
@@ -67,6 +66,11 @@ const photoPreviewImage = document.getElementById("photoPreviewImage");
 const photoPreviewPrevBtn = document.getElementById("photoPreviewPrevBtn");
 const photoPreviewNextBtn = document.getElementById("photoPreviewNextBtn");
 const photoPreviewCloseBtn = document.getElementById("photoPreviewCloseBtn");
+const adminTokenModal = document.getElementById("adminTokenModal");
+const adminTokenInput = document.getElementById("adminTokenInput");
+const adminTokenHelp = document.getElementById("adminTokenHelp");
+const adminTokenCancelBtn = document.getElementById("adminTokenCancelBtn");
+const adminTokenSaveBtn = document.getElementById("adminTokenSaveBtn");
 
 let playlist = [];
 let selectedFiles = [];
@@ -119,18 +123,52 @@ function persistAdminTokenFromUrl() {
   window.history.replaceState({}, "", nextUrl);
 }
 
-function promptForAdminToken(force = false) {
-  const existing = readAdminToken();
-  if (existing && !force) return existing;
-  const provided = window.prompt("Ingresa ADMIN_TOKEN para administrar el panel", existing || "");
-  const token = String(provided || "").trim();
-  if (!token) return "";
+function saveAdminToken(token) {
+  const clean = String(token || "").trim();
+  if (!clean) return "";
   try {
-    localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    localStorage.setItem(ADMIN_TOKEN_KEY, clean);
   } catch (error) {
     // ignore
   }
-  return token;
+  return clean;
+}
+
+function openAdminTokenModal(message = "Ingresa tu ADMIN_TOKEN para administrar el panel.") {
+  if (!adminTokenModal || !adminTokenInput) return;
+  if (!adminTokenModal.hidden) return;
+  if (adminTokenHelp) {
+    adminTokenHelp.textContent = message;
+  }
+  adminTokenInput.value = "";
+  adminTokenModal.hidden = false;
+  setTimeout(() => adminTokenInput.focus(), 0);
+}
+
+function closeAdminTokenModal() {
+  if (!adminTokenModal || !adminTokenInput) return;
+  adminTokenModal.hidden = true;
+  adminTokenInput.value = "";
+}
+
+function ensureAdminTokenModal(force = false, message) {
+  const existing = readAdminToken();
+  if (existing && !force) return existing;
+  openAdminTokenModal(message);
+  return "";
+}
+
+async function submitAdminTokenFromModal() {
+  if (!adminTokenInput) return;
+  const token = saveAdminToken(adminTokenInput.value);
+  if (!token) {
+    setFeedback("Ingresa un token valido", "error");
+    adminTokenInput.focus();
+    return;
+  }
+  closeAdminTokenModal();
+  setFeedback("Token admin actualizado", "success");
+  await refreshAll();
 }
 
 const TV_MODE_BREAKPOINT = 1300;
@@ -187,12 +225,9 @@ function computeAutoThemeMode() {
 function applyThemePreference() {
   const resolved = themeModePreference === "auto" ? computeAutoThemeMode() : themeModePreference;
   document.documentElement.dataset.theme = resolved;
-  if (!themeModeBtn) return;
-  if (themeModePreference === "auto") {
-    themeModeBtn.textContent = `Tema AUTO (${resolved === "dark" ? "OSC" : "CLA"})`;
-    return;
+  if (themeModeSelect) {
+    themeModeSelect.value = themeModePreference;
   }
-  themeModeBtn.textContent = resolved === "dark" ? "Tema OSCURO" : "Tema CLARO";
 }
 
 function setThemePreference(nextPreference) {
@@ -388,8 +423,7 @@ async function apiRequest(url, options = {}) {
   if (res.status === 401 && !authWarningShown) {
     authWarningShown = true;
     setFeedback("Sesion admin no autorizada. Actualiza el token.", "error");
-    showToast("No autorizado. Ingresa token admin.", "error");
-    promptForAdminToken(true);
+    openAdminTokenModal("Sesion vencida o token invalido. Ingresa ADMIN_TOKEN para continuar.");
   }
   if (res.ok) {
     authWarningShown = false;
@@ -403,24 +437,6 @@ async function fetchJson(url, options) {
     throw new Error(`HTTP ${res.status} ${url}`);
   }
   return res.json();
-}
-
-async function approvePairingCode(code) {
-  const clean = String(code || "").trim();
-  if (!/^\d{6}$/.test(clean)) {
-    setFeedback("Codigo invalido. Debe tener 6 digitos.", "error");
-    return;
-  }
-  const res = await apiRequest("/api/player/pair/approve", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ code: clean })
-  });
-  if (!res.ok) {
-    setFeedback("No se pudo vincular TV (codigo vencido o incorrecto)", "error");
-    return;
-  }
-  setFeedback("TV vinculada correctamente", "success");
 }
 
 async function fetchPlaylist() {
@@ -1677,20 +1693,26 @@ if (groupSelectHelp) {
 
 if (applyDefaultDurationBtn) {
   applyDefaultDurationBtn.addEventListener("click", async () => {
-    if (!confirm("Aplicar la duracion por defecto a todas las imagenes?")) return;
-    applyDefaultDurationBtn.disabled = true;
-    try {
-      const res = await apiRequest("/api/images/apply-default", { method: "POST" });
-      if (!res.ok) {
-        setFeedback("No se pudo aplicar duracion por defecto", "error");
-        return;
-      }
-      const payload = await res.json();
-      await refreshAll();
-      setFeedback(`Duracion aplicada a ${payload.updated || 0} imagen(es)`, "success");
-    } finally {
-      applyDefaultDurationBtn.disabled = false;
-    }
+    showActionToast(
+      "Aplicar la duracion por defecto a todas las imagenes",
+      "Aplicar",
+      async () => {
+        applyDefaultDurationBtn.disabled = true;
+        try {
+          const res = await apiRequest("/api/images/apply-default", { method: "POST" });
+          if (!res.ok) {
+            setFeedback("No se pudo aplicar duracion por defecto", "error");
+            return;
+          }
+          const payload = await res.json();
+          await refreshAll();
+          setFeedback(`Duracion aplicada a ${payload.updated || 0} imagen(es)`, "success");
+        } finally {
+          applyDefaultDurationBtn.disabled = false;
+        }
+      },
+      "error"
+    );
   });
 }
 
@@ -1890,29 +1912,17 @@ tvModeBtn.addEventListener("click", () => {
   cycleTvModePreference();
 });
 
-if (themeModeBtn) {
-  themeModeBtn.addEventListener("click", () => {
-    cycleThemePreference();
+if (themeModeSelect) {
+  themeModeSelect.addEventListener("change", () => {
+    const next = String(themeModeSelect.value || "auto").trim();
+    if (!["auto", "light", "dark"].includes(next)) return;
+    setThemePreference(next);
   });
 }
 
 if (authTokenBtn) {
   authTokenBtn.addEventListener("click", () => {
-    const token = promptForAdminToken(true);
-    if (!token) {
-      setFeedback("Token no actualizado", "error");
-      return;
-    }
-    setFeedback("Token admin actualizado", "success");
-    refreshAll().catch(() => showOfflineState());
-  });
-}
-
-if (pairTvBtn) {
-  pairTvBtn.addEventListener("click", () => {
-    const code = window.prompt("Ingresa el codigo de 6 digitos mostrado en la TV");
-    if (!code) return;
-    approvePairingCode(code).catch(() => setFeedback("No se pudo vincular TV", "error"));
+    openAdminTokenModal("Actualiza tu ADMIN_TOKEN.");
   });
 }
 
@@ -1945,6 +1955,39 @@ renameModal.addEventListener("click", (event) => {
     closeRenameModal();
   }
 });
+
+if (adminTokenSaveBtn) {
+  adminTokenSaveBtn.addEventListener("click", () => {
+    submitAdminTokenFromModal().catch(() => setFeedback("No se pudo guardar token", "error"));
+  });
+}
+
+if (adminTokenCancelBtn) {
+  adminTokenCancelBtn.addEventListener("click", () => {
+    closeAdminTokenModal();
+  });
+}
+
+if (adminTokenInput) {
+  adminTokenInput.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitAdminTokenFromModal().catch(() => setFeedback("No se pudo guardar token", "error"));
+    }
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeAdminTokenModal();
+    }
+  });
+}
+
+if (adminTokenModal) {
+  adminTokenModal.addEventListener("click", (event) => {
+    if (event.target === adminTokenModal) {
+      closeAdminTokenModal();
+    }
+  });
+}
 
 if (photoPreviewCloseBtn) {
   photoPreviewCloseBtn.addEventListener("click", () => {
@@ -2043,7 +2086,7 @@ function showOfflineState() {
 }
 
 persistAdminTokenFromUrl();
-promptForAdminToken(false);
+ensureAdminTokenModal(false, "Ingresa ADMIN_TOKEN para comenzar.");
 
 refreshAll().catch(() => {
   setStatus("Error cargando datos");

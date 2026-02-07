@@ -560,69 +560,6 @@ body.tizen .loading-spinner {
   animation: spin 1.2s linear infinite;
 }
 
-.pairing-overlay {
-  position: absolute;
-  inset: 0;
-  z-index: 880;
-  display: grid;
-  place-items: center;
-  background: rgba(0, 0, 0, 0.62);
-}
-
-.pairing-overlay .panel {
-  width: min(92vw, 560px);
-  border: 1px solid rgba(255, 255, 255, 0.24);
-  border-radius: 16px;
-  background: rgba(15, 23, 42, 0.9);
-  color: #fff;
-  padding: 22px;
-  text-align: center;
-}
-
-.pairing-overlay .title {
-  font-size: 30px;
-  font-weight: 700;
-}
-
-.pairing-overlay .message {
-  margin-top: 10px;
-  font-size: 16px;
-  color: rgba(255, 255, 255, 0.85);
-}
-
-.pair-code {
-  margin-top: 14px;
-  font-size: 46px;
-  letter-spacing: 0.08em;
-  font-weight: 800;
-  color: #fff;
-}
-
-.pairing-overlay .hint {
-  margin-top: 8px;
-  color: rgba(255, 255, 255, 0.75);
-  font-size: 14px;
-}
-
-:root[data-theme="light"] .pairing-overlay {
-  background: rgba(15, 23, 42, 0.3);
-}
-
-:root[data-theme="light"] .pairing-overlay .panel {
-  background: rgba(255, 255, 255, 0.95);
-  color: #0f172a;
-  border-color: rgba(148, 163, 184, 0.4);
-}
-
-:root[data-theme="light"] .pairing-overlay .message,
-:root[data-theme="light"] .pairing-overlay .hint {
-  color: rgba(15, 23, 42, 0.72);
-}
-
-:root[data-theme="light"] .pair-code {
-  color: #0f172a;
-}
-
 .error-overlay {
   position: absolute;
   inset: 0;

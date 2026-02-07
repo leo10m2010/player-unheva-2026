@@ -22,14 +22,9 @@ const playBtn = document.getElementById("playBtn");
 const nextBtn = document.getElementById("nextBtn");
 const muteBtn = document.getElementById("muteBtn");
 const infoBtn = document.getElementById("infoBtn");
-const themeBtn = document.getElementById("themeBtn");
 const fullscreenBtn = document.getElementById("fullscreenBtn");
-const pairingOverlay = document.getElementById("pairingOverlay");
-const pairCodeEl = document.getElementById("pairCode");
-const pairHintEl = document.getElementById("pairHint");
 const PLAYER_TOKEN_KEY = "player-api-token";
-const PLAYER_DEVICE_ID_KEY = "player-device-id";
-const PLAYER_THEME_PREF_KEY = "player-theme-pref";
+const PLAYER_DEBUG = new URLSearchParams(window.location.search || "").get("debug") === "1";
 
 class Player24x7 {
   constructor() {
@@ -51,11 +46,6 @@ class Player24x7 {
     this.playlistRequestInFlight = false;
     this.hasStartedPlayback = false;
     this.focusIndex = 1;
-    this.controls = [prevBtn, playBtn, nextBtn, muteBtn, infoBtn];
-    if (themeBtn && !this.isTizen) {
-      this.controls.push(themeBtn);
-    }
-    this.controls.push(fullscreenBtn);
     this.errorTimer = null;
     this.infoPinned = false;
     this.imageTimer = null;
@@ -84,11 +74,8 @@ class Player24x7 {
     this.playAttemptId = 0;
     this.hls = null;
     this.isTizen = this.detectTizen();
-    this.deviceId = this.resolveDeviceId();
+    this.controls = [prevBtn, playBtn, nextBtn, muteBtn, infoBtn, fullscreenBtn];
     this.playerToken = this.resolvePlayerToken();
-    this.pairCode = "";
-    this.pairPollTimer = null;
-    this.themePreference = this.resolveThemePreference();
   }
 
   resolvePlayerToken() {
@@ -99,149 +86,13 @@ class Player24x7 {
     }
   }
 
-  resolveDeviceId() {
-    try {
-      const existing = String(localStorage.getItem(PLAYER_DEVICE_ID_KEY) || "").trim();
-      if (existing) return existing;
-      const generated = `tv-${Math.random().toString(36).slice(2, 12)}-${Date.now().toString(36)}`;
-      localStorage.setItem(PLAYER_DEVICE_ID_KEY, generated);
-      return generated;
-    } catch (error) {
-      return `tv-volatile-${Math.random().toString(36).slice(2, 12)}`;
-    }
-  }
-
-  resolveThemePreference() {
-    const fromUrl = new URLSearchParams(window.location.search || "").get("theme");
-    if (fromUrl && ["auto", "light", "dark"].includes(fromUrl)) {
-      try {
-        localStorage.setItem(PLAYER_THEME_PREF_KEY, fromUrl);
-      } catch (error) {
-        // ignore
-      }
-      return fromUrl;
-    }
-    try {
-      const stored = String(localStorage.getItem(PLAYER_THEME_PREF_KEY) || "auto").trim();
-      return ["auto", "light", "dark"].includes(stored) ? stored : "auto";
-    } catch (error) {
-      return "auto";
-    }
-  }
-
   applyTheme() {
-    let resolved = this.themePreference;
-    if (this.themePreference === "auto") {
-      if (this.isTizen) {
-        resolved = "dark";
-      } else {
-        resolved = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-      }
-    }
+    const resolved = this.isTizen
+      ? "dark"
+      : window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches
+        ? "dark"
+        : "light";
     document.documentElement.dataset.theme = resolved;
-    if (themeBtn) {
-      themeBtn.textContent = resolved === "dark" ? "Tema: Oscuro" : "Tema: Claro";
-    }
-  }
-
-  cycleTheme() {
-    const order = ["auto", "dark", "light"];
-    const current = order.includes(this.themePreference) ? this.themePreference : "auto";
-    const next = order[(order.indexOf(current) + 1) % order.length];
-    this.themePreference = next;
-    try {
-      localStorage.setItem(PLAYER_THEME_PREF_KEY, next);
-    } catch (error) {
-      // ignore
-    }
-    this.applyTheme();
-    if (!this.isTizen && window.matchMedia) {
-      const query = window.matchMedia("(prefers-color-scheme: dark)");
-      query.addEventListener("change", () => {
-        if (this.themePreference === "auto") {
-          this.applyTheme();
-        }
-      });
-    }
-  }
-
-  showPairingOverlay(code, hint) {
-    if (!pairingOverlay) return;
-    if (pairCodeEl) pairCodeEl.textContent = code || "------";
-    if (pairHintEl) pairHintEl.textContent = hint || "Esperando aprobacion...";
-    pairingOverlay.hidden = false;
-  }
-
-  hidePairingOverlay() {
-    if (!pairingOverlay) return;
-    pairingOverlay.hidden = true;
-  }
-
-  async startPairingFlow() {
-    if (this.playerToken) return;
-    const res = await fetch("/api/player/pair/start", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId: this.deviceId })
-    });
-    if (!res.ok) {
-      throw new Error(`Pair start failed ${res.status}`);
-    }
-    const payload = await res.json();
-    this.pairCode = String(payload?.code || "").trim();
-    if (!this.pairCode) {
-      throw new Error("No pairing code returned");
-    }
-    this.showPairingOverlay(this.pairCode, "Abre Admin y usa el boton Vincular TV");
-    this.startPairPolling();
-  }
-
-  startPairPolling() {
-    if (this.pairPollTimer || !this.pairCode) return;
-    this.pairPollTimer = setInterval(() => {
-      this.checkPairStatus().catch(() => {});
-    }, 4000);
-    this.checkPairStatus().catch(() => {});
-  }
-
-  async checkPairStatus() {
-    if (!this.pairCode || this.playerToken) return;
-    const res = await fetch("/api/player/pair/status", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId: this.deviceId, code: this.pairCode })
-    });
-    if (res.status === 404) {
-      if (this.pairPollTimer) {
-        clearInterval(this.pairPollTimer);
-        this.pairPollTimer = null;
-      }
-      this.pairCode = "";
-      this.showPairingOverlay("------", "Generando nuevo codigo...");
-      this.startPairingFlow().catch(() => {
-        this.showPairingOverlay("------", "No se pudo renovar codigo de vinculacion");
-      });
-      return;
-    }
-    if (!res.ok) return;
-    const payload = await res.json();
-    if (!payload?.approved) {
-      return;
-    }
-    const token = String(payload.token || "").trim();
-    if (!token) return;
-    this.playerToken = token;
-    try {
-      localStorage.setItem(PLAYER_TOKEN_KEY, token);
-    } catch (error) {
-      // ignore
-    }
-    if (this.pairPollTimer) {
-      clearInterval(this.pairPollTimer);
-      this.pairPollTimer = null;
-    }
-    this.hidePairingOverlay();
-    this.sendStatus();
   }
 
   authHeaders() {
@@ -264,6 +115,12 @@ class Player24x7 {
   async init() {
     this.bindEvents();
     this.applyTheme();
+    if (!this.isTizen && window.matchMedia) {
+      const query = window.matchMedia("(prefers-color-scheme: dark)");
+      query.addEventListener("change", () => {
+        this.applyTheme();
+      });
+    }
     this.showError(false);
     playBtn.classList.add("is-paused");
     this.updateMuteButton();
@@ -271,11 +128,6 @@ class Player24x7 {
     this.showControls();
     if (this.isTizen) {
       document.body.classList.add("tizen");
-    }
-    if (!this.playerToken) {
-      this.startPairingFlow().catch(() => {
-        this.showPairingOverlay("------", "No se pudo iniciar vinculacion");
-      });
     }
     await this.loadPlaylist();
     await this.loadPhotoAudio();
@@ -864,10 +716,6 @@ class Player24x7 {
     prevBtn.addEventListener("click", () => this.playPrev());
     muteBtn.addEventListener("click", () => this.toggleMute());
     infoBtn.addEventListener("click", () => this.toggleInfo());
-    if (themeBtn) {
-      themeBtn.addEventListener("click", () => this.cycleTheme());
-      themeBtn.hidden = this.isTizen;
-    }
     fullscreenBtn.addEventListener("click", () => this.toggleFullscreen());
     unmuteBtn.addEventListener("click", () => this.unmute());
     unmuteOverlay.addEventListener("click", (event) => {
@@ -1285,6 +1133,7 @@ class Player24x7 {
   }
 
   logStatus() {
+    if (!PLAYER_DEBUG) return;
     const mediaType = this.currentItemType();
     console.log({
       timestamp: new Date().toISOString(),
@@ -1313,7 +1162,6 @@ class Player24x7 {
   }
 
   async sendStatus() {
-    if (!this.playerToken) return;
     if (this.statusRequestInFlight) return;
     this.statusRequestInFlight = true;
     const mediaType = this.currentItemType();
@@ -1360,7 +1208,6 @@ class Player24x7 {
   }
 
   async logEvent(type, videoId, message) {
-    if (!this.playerToken) return;
     try {
       await fetch("/api/player/event", {
         method: "POST",

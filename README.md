@@ -11,11 +11,7 @@ docker compose up -d --build
 - Admin: `http://localhost:8090/admin`
 - Player: `http://localhost:8090/player`
 
-Si activas token para telemetria del player en TV:
-
-1. Abre `http://localhost:8090/player` en la TV (mostrara un codigo de 6 digitos).
-2. En Admin, usa el boton `Vincular TV` e ingresa ese codigo.
-3. El player guarda el token localmente y continua normal.
+En red local, el player funciona directo en `http://localhost:8090/player` sin flujo de vinculacion.
 
 ## Formatos soportados
 
@@ -92,8 +88,8 @@ Respuesta ejemplo:
 - `MAX_TRANSCODE_QUEUE=25`
 - `ADMIN_TOKEN=` (requerido en produccion para endpoints de escritura con `x-admin-token`)
 - `REQUIRE_ADMIN_TOKEN=true` (por defecto en `NODE_ENV=production`)
-- `PLAYER_TOKEN=` (recomendado, token dedicado para `POST /api/player/*`)
-- `REQUIRE_PLAYER_TOKEN=true` (por defecto en `NODE_ENV=production`)
+- `PLAYER_TOKEN=` (opcional)
+- `REQUIRE_PLAYER_TOKEN=false` (recomendado para LAN; `true` solo si deseas proteger telemetria del player)
 - `FFPROBE_IDLE_TIMEOUT_MS=120000` (timeout por inactividad de `ffprobe`)
 - `FFMPEG_IDLE_TIMEOUT_MS=900000` (timeout por inactividad de `ffmpeg`, no por tamano)
 - `FFMPEG_TOTAL_TIMEOUT_MS=0` (0 = sin timeout total, evita cortar videos grandes)

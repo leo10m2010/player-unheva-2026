@@ -13,7 +13,7 @@ services:
       - NODE_ENV=production
       - REQUIRE_ADMIN_TOKEN=true
       - ADMIN_TOKEN=${ADMIN_TOKEN:?Define ADMIN_TOKEN in your shell or .env file}
-      - REQUIRE_PLAYER_TOKEN=true
+      - REQUIRE_PLAYER_TOKEN=false
       - PLAYER_TOKEN=${PLAYER_TOKEN:-}
       - FFPROBE_IDLE_TIMEOUT_MS=120000
       - FFMPEG_IDLE_TIMEOUT_MS=900000

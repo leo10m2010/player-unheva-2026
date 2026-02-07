@@ -18,14 +18,14 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #0b1220;
-  --bg-soft: #111a2d;
-  --card: #111827;
-  --text: #e5e7eb;
-  --muted: #94a3b8;
-  --line: #243246;
+  --bg: #070707;
+  --bg-soft: #0d0d0d;
+  --card: #121212;
+  --text: #f3f4f6;
+  --muted: #a3a3a3;
+  --line: #2a2a2a;
   --accent-soft: rgba(192, 22, 34, 0.2);
-  --shadow: 0 18px 40px rgba(1, 6, 17, 0.45);
+  --shadow: 0 18px 40px rgba(0, 0, 0, 0.5);
 }
 
 body {
@@ -36,7 +36,7 @@ body {
 }
 
 :root[data-theme="dark"] body {
-  background: radial-gradient(circle at top left, #131f34 0%, #0b1220 50%, #070d18 100%);
+  background: radial-gradient(circle at top left, #1a1a1a 0%, #0c0c0c 50%, #050505 100%);
 }
 
 .topbar {
@@ -82,6 +82,27 @@ body {
   gap: 8px;
   flex-wrap: wrap;
   justify-content: flex-end;
+}
+
+.theme-select-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 6px 8px;
+}
+
+.theme-select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #ffffff;
+  color: var(--text);
+  font-size: 12px;
+  padding: 4px 8px;
 }
 
 .save-config-btn,
@@ -223,26 +244,27 @@ select:focus:not(:focus-visible) {
 :root[data-theme="dark"] .upload-zone,
 :root[data-theme="dark"] .modal-card,
 :root[data-theme="dark"] .photo-preview-card {
-  background: #111827;
-  border-color: #243246;
+  background: #121212;
+  border-color: #2a2a2a;
 }
 
 :root[data-theme="dark"] .save-config-btn,
 :root[data-theme="dark"] .filter-btn,
+:root[data-theme="dark"] .theme-select-wrap,
 :root[data-theme="dark"] .inline-maintenance,
 :root[data-theme="dark"] .group-actions button,
 :root[data-theme="dark"] .video-actions button,
 :root[data-theme="dark"] .reorder-btn,
 :root[data-theme="dark"] .secondary,
 :root[data-theme="dark"] #saveOrderBtn {
-  background: #1a2335;
-  border-color: #2f415e;
+  background: #1a1a1a;
+  border-color: #333333;
   color: #e5e7eb;
 }
 
 :root[data-theme="dark"] .save-config-btn.subtle,
 :root[data-theme="dark"] .group-actions .save-config-btn.subtle {
-  background: #162032;
+  background: #151515;
 }
 
 :root[data-theme="dark"] input,
@@ -252,20 +274,26 @@ select:focus:not(:focus-visible) {
 :root[data-theme="dark"] .group-card input[type="number"],
 :root[data-theme="dark"] .playlist-duration,
 :root[data-theme="dark"] .duration-wrap input {
-  background: #0f172a;
-  border-color: #334155;
+  background: #0f0f0f;
+  border-color: #303030;
   color: #e5e7eb;
 }
 
+:root[data-theme="dark"] .theme-select {
+  background: #101010;
+  border-color: #303030;
+  color: #f3f4f6;
+}
+
 :root[data-theme="dark"] .upload-zone {
-  background: linear-gradient(135deg, #0f172a 0%, #111a2d 100%);
+  background: linear-gradient(135deg, #101010 0%, #161616 100%);
 }
 
 :root[data-theme="dark"] .group-chip,
 :root[data-theme="dark"] .hls-badge,
 :root[data-theme="dark"] .time-display {
-  background: #162032;
-  border-color: #334155;
+  background: #171717;
+  border-color: #303030;
 }
 
 .card.full,
@@ -1308,6 +1336,11 @@ select:focus:not(:focus-visible) {
   background: #ffffff;
   padding: 16px;
   box-shadow: var(--shadow);
+}
+
+#adminTokenInput {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  letter-spacing: 0.04em;
 }
 
 .modal-card h3 {

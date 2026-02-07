@@ -15,8 +15,14 @@
       <div class="topbar-right">
         <div class="topbar-actions">
           <button id="tvModeBtn" class="save-config-btn ghost" type="button">Modo TV</button>
-          <button id="themeModeBtn" class="save-config-btn ghost" type="button">Tema AUTO</button>
-          <button id="pairTvBtn" class="save-config-btn ghost" type="button">Vincular TV</button>
+          <label class="theme-select-wrap" for="themeModeSelect">
+            Tema
+            <select id="themeModeSelect" class="theme-select" aria-label="Seleccionar tema">
+              <option value="auto">Auto</option>
+              <option value="light">Claro</option>
+              <option value="dark">Oscuro</option>
+            </select>
+          </label>
           <button id="authTokenBtn" class="save-config-btn ghost" type="button">Token</button>
           <button id="saveConfigBtn" class="save-config-btn" type="button">Guardar configuracion</button>
         </div>
@@ -240,6 +246,18 @@
           >
             &rsaquo;
           </button>
+        </div>
+      </div>
+    </div>
+
+    <div id="adminTokenModal" class="modal" hidden>
+      <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="adminTokenTitle">
+        <h3 id="adminTokenTitle">Token de administrador</h3>
+        <p id="adminTokenHelp" class="help">Ingresa tu ADMIN_TOKEN para administrar el panel.</p>
+        <input id="adminTokenInput" type="password" autocomplete="off" placeholder="ADMIN_TOKEN" />
+        <div class="modal-actions">
+          <button id="adminTokenCancelBtn" type="button" class="secondary">Cancelar</button>
+          <button id="adminTokenSaveBtn" type="button">Guardar token</button>
         </div>
       </div>
     </div>
