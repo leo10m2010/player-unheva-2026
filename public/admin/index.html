@@ -138,25 +138,28 @@
       </section>
 
       <section class="card full">
-        <h2>Grupos de fotos (collage)</h2>
-        <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
-        <form id="photoGroupForm" class="group-form">
-          <input id="photoGroupTitle" type="text" placeholder="Titulo del grupo" maxlength="120" />
-          <input id="photoGroupFooter" type="text" placeholder="Pie de pagina" maxlength="180" />
-          <button type="submit">Crear grupo</button>
-        </form>
-        <div class="group-audio">
-          <label class="file-label">
-            Musica global para fotos
-            <input id="photoAudioInput" type="file" accept=".mp3,.m4a,.aac,.ogg,.wav" />
-          </label>
-          <button id="removePhotoAudioBtn" type="button" class="secondary">Quitar musica</button>
-        </div>
-        <div id="photoGroupList" class="group-list"></div>
-      </section>
-
-      <section class="card full">
         <h2>Biblioteca</h2>
+        <div id="groupPanel" class="group-panel" hidden>
+          <div class="group-panel-head">
+            <div>
+              <h3>Grupos de fotos</h3>
+              <p class="help">Crea grupos, administra fotos y agregalos a la playlist.</p>
+            </div>
+            <div class="group-audio">
+              <label class="file-label">
+                Musica global para fotos
+                <input id="photoAudioInput" type="file" accept=".mp3,.m4a,.aac,.ogg,.wav" />
+              </label>
+              <button id="removePhotoAudioBtn" type="button" class="secondary">Quitar musica</button>
+            </div>
+          </div>
+          <form id="photoGroupForm" class="group-form">
+            <input id="photoGroupTitle" type="text" placeholder="Titulo del grupo" maxlength="120" />
+            <input id="photoGroupFooter" type="text" placeholder="Pie de pagina" maxlength="180" />
+            <button type="submit">Crear grupo</button>
+          </form>
+          <div id="photoGroupList" class="group-list"></div>
+        </div>
         <div class="library-toolbar" id="libraryToolbar">
           <button class="filter-btn is-active" type="button" data-filter="all">Todo <span id="countAll">0</span></button>
           <button class="filter-btn" type="button" data-filter="video">Videos <span id="countVideo">0</span></button>

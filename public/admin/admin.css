@@ -64,7 +64,10 @@ body {
 .video-actions button,
 .inline-maintenance,
 .modal-actions button,
-.reorder-btn {
+.reorder-btn,
+.group-form button,
+.group-actions button,
+.group-thumb button {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: #ffffff;
@@ -94,7 +97,10 @@ body {
 .video-actions button:hover,
 .inline-maintenance:hover,
 .modal-actions button:hover,
-.reorder-btn:hover {
+.reorder-btn:hover,
+.group-form button:hover,
+.group-actions button:hover,
+.group-thumb button:hover {
   transform: translateY(-1px);
   border-color: rgba(192, 22, 34, 0.55);
   box-shadow: 0 8px 20px rgba(192, 22, 34, 0.12);
@@ -943,6 +949,12 @@ body {
   background: #f8fafc;
 }
 
+.secondary {
+  background: #f8fafc;
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
 @keyframes rise {
   from {
     opacity: 0;
@@ -1098,4 +1110,24 @@ body.tv-mode .save-config-btn#tvModeBtn {
   background: rgba(192, 22, 34, 0.12);
   border-color: rgba(192, 22, 34, 0.46);
   color: #8f101a;
+}
+.group-panel {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px;
+  background: #ffffff;
+  margin-bottom: 16px;
+}
+
+.group-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.group-panel h3 {
+  margin: 0;
+  font-size: 16px;
 }

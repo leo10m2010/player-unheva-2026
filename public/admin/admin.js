@@ -42,6 +42,7 @@ const photoGroupFooter = document.getElementById("photoGroupFooter");
 const photoGroupList = document.getElementById("photoGroupList");
 const photoAudioInput = document.getElementById("photoAudioInput");
 const removePhotoAudioBtn = document.getElementById("removePhotoAudioBtn");
+const groupPanel = document.getElementById("groupPanel");
 const diskMeterBar = document.getElementById("diskMeterBar");
 const processMeter = document.getElementById("processMeter");
 const processMeterFill = document.getElementById("processMeterFill");
@@ -882,6 +883,13 @@ function renderLibrary() {
   });
 }
 
+if (groupPanel) {
+  groupPanel.hidden = libraryFilter !== "group";
+}
+if (libraryEl) {
+  libraryEl.hidden = libraryFilter === "group";
+}
+
 function renderPhotoGroups() {
   if (!photoGroupList) return;
   photoGroupList.innerHTML = "";
@@ -1549,6 +1557,12 @@ libraryToolbar.addEventListener("click", (event) => {
   libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
     btn.classList.toggle("is-active", btn === button);
   });
+  if (groupPanel) {
+    groupPanel.hidden = nextFilter !== "group";
+  }
+  if (libraryEl) {
+    libraryEl.hidden = nextFilter === "group";
+  }
   renderLibrary();
 });
 
