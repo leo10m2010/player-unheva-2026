@@ -122,7 +122,7 @@ class Player24x7 {
     collageGrid.innerHTML = "";
     if (!this.collagePhotos.length) return;
     const total = this.collagePhotos.length;
-    const slots = Math.min(6, total);
+    const slots = Math.min(3, total);
     const used = new Set();
     for (let i = 0; i < slots; i += 1) {
       let idx = Math.floor(Math.random() * total);
@@ -255,7 +255,10 @@ class Player24x7 {
         videoEl.style.display = "none";
         imageEl.hidden = false;
         imageEl.style.display = "block";
-        if (photoGroupEl) photoGroupEl.hidden = true;
+        if (photoGroupEl) {
+          photoGroupEl.hidden = true;
+          photoGroupEl.style.display = "none";
+        }
         imageEl.src = `/uploads/${media.filename}`;
         this.imageDuration = Number(media.displayDuration || 15);
         this.imageRemaining = this.imageDuration;
@@ -269,14 +272,19 @@ class Player24x7 {
         videoEl.style.display = "none";
         imageEl.hidden = true;
         imageEl.style.display = "none";
-        if (photoGroupEl) photoGroupEl.hidden = false;
+        if (photoGroupEl) {
+          photoGroupEl.hidden = false;
+          photoGroupEl.style.display = "grid";
+        }
         this.groupDuration = Number(media.displayDuration || 30);
         this.groupRemaining = this.groupDuration;
         this.groupStartedAt = Date.now();
         this.groupPlaying = true;
         this.collagePhotos = Array.isArray(media.photos) ? media.photos : [];
         this.renderCollage();
-        this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        if (this.collagePhotos.length > 3) {
+          this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        }
         this.groupTimer = setTimeout(() => this.playNext(), this.groupDuration * 1000);
         if (collageFooter) {
           collageFooter.textContent = media.footer || "";
@@ -285,7 +293,10 @@ class Player24x7 {
       } else {
         imageEl.hidden = true;
         imageEl.style.display = "none";
-        if (photoGroupEl) photoGroupEl.hidden = true;
+        if (photoGroupEl) {
+          photoGroupEl.hidden = true;
+          photoGroupEl.style.display = "none";
+        }
         videoEl.hidden = false;
         videoEl.style.display = "block";
         this.resetVideoElement();
@@ -614,7 +625,9 @@ class Player24x7 {
       } else {
         this.groupStartedAt = Date.now() - (this.groupDuration - this.groupRemaining) * 1000;
         this.groupTimer = setTimeout(() => this.playNext(), this.groupRemaining * 1000);
-        this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        if (this.collagePhotos.length > 3) {
+          this.collageTimer = setInterval(() => this.renderCollage(), this.collageInterval * 1000);
+        }
         this.groupPlaying = true;
         this.userPaused = false;
         this.startPhotoAudio();

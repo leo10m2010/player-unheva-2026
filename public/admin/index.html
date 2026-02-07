@@ -126,20 +126,6 @@
             <button type="submit">Subir</button>
           </div>
         </form>
-      </section>
-
-      <section class="card">
-        <h2>Playlist</h2>
-        <p class="help">Arrastra para ordenar. En movil usa los botones de posicion. Guarda al terminar.</p>
-        <div class="playlist-toolbar">
-          <span class="playlist-hint">Drag and drop activo</span>
-          <button id="saveOrderBtn" type="button" disabled>Guardar orden</button>
-        </div>
-        <div id="playlist" class="playlist"></div>
-      </section>
-
-      <section class="card full">
-        <h2>Biblioteca</h2>
         <div id="groupPanel" class="group-panel" hidden>
           <div class="group-panel-head">
             <div>
@@ -161,11 +147,24 @@
           </form>
           <div id="photoGroupList" class="group-list"></div>
         </div>
+      </section>
+
+      <section class="card">
+        <h2>Playlist</h2>
+        <p class="help">Arrastra para ordenar. En movil usa los botones de posicion. Guarda al terminar.</p>
+        <div class="playlist-toolbar">
+          <span class="playlist-hint">Drag and drop activo</span>
+          <button id="saveOrderBtn" type="button" disabled>Guardar orden</button>
+        </div>
+        <div id="playlist" class="playlist"></div>
+      </section>
+
+      <section class="card full">
+        <h2>Biblioteca</h2>
         <div class="library-toolbar" id="libraryToolbar">
           <button class="filter-btn is-active" type="button" data-filter="all">Todo <span id="countAll">0</span></button>
           <button class="filter-btn" type="button" data-filter="video">Videos <span id="countVideo">0</span></button>
           <button class="filter-btn" type="button" data-filter="image">Imagenes <span id="countImage">0</span></button>
-          <button class="filter-btn" type="button" data-filter="group">Grupos <span id="countGroup">0</span></button>
         </div>
         <div id="library" class="library"></div>
       </section>

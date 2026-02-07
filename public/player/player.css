@@ -69,15 +69,16 @@ video {
 .collage-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  grid-template-rows: repeat(2, 1fr);
-  gap: 8px;
-  padding: 40px 60px 20px;
+  grid-template-rows: 1fr;
+  gap: 12px;
+  padding: 50px 70px 20px;
+  align-items: stretch;
 }
 
 .collage-cell {
   width: 100%;
   height: 100%;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
   background: #111;
 }

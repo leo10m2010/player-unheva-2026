@@ -417,7 +417,7 @@ body {
   padding: 10px;
   border-radius: 10px;
   border: 1px solid var(--line);
-  background: #fff;
+  background: #ffffff;
   max-height: 180px;
   overflow: auto;
 }
@@ -493,6 +493,10 @@ body {
   font-weight: 700;
   padding: 8px 16px;
   cursor: pointer;
+}
+
+#uploadForm button.primary {
+  background: var(--accent);
 }
 
 #uploadForm button:disabled {
@@ -1121,11 +1125,11 @@ body.tv-mode .save-config-btn#tvModeBtn {
   color: #8f101a;
 }
 .group-panel {
-  border: 1px solid var(--line);
+  border: 1px dashed var(--line);
   border-radius: 14px;
   padding: 14px;
-  background: #ffffff;
-  margin-bottom: 16px;
+  background: #f9fbff;
+  margin-top: 16px;
 }
 
 .group-panel-head {

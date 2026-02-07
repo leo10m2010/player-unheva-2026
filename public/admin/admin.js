@@ -20,7 +20,6 @@ const toastHost = document.getElementById("toastHost");
 const countAll = document.getElementById("countAll");
 const countVideo = document.getElementById("countVideo");
 const countImage = document.getElementById("countImage");
-const countGroup = document.getElementById("countGroup");
 const liveState = document.getElementById("liveState");
 const metricCurrentVideo = document.getElementById("metricCurrentVideo");
 const metricPlaylistSize = document.getElementById("metricPlaylistSize");
@@ -688,24 +687,17 @@ function movePlaylistByKey(key, direction) {
 }
 
 function getFilteredLibraryItems() {
-  const allItems = [
-    ...libraryItems,
-    ...photoGroups.map((group) => ({ ...group, type: "photoGroup" }))
-  ];
-  if (libraryFilter === "all") return allItems;
-  if (libraryFilter === "group") return allItems.filter((item) => item.type === "photoGroup");
-  return allItems.filter((item) => (item.type || "video") === libraryFilter);
+  if (libraryFilter === "all") return libraryItems;
+  return libraryItems.filter((item) => (item.type || "video") === libraryFilter);
 }
 
 function updateFilterCounts() {
-  const total = libraryItems.length + photoGroups.length;
+  const total = libraryItems.length;
   const videos = libraryItems.filter((item) => (item.type || "video") === "video").length;
   const images = libraryItems.filter((item) => (item.type || "video") === "image").length;
-  const groups = photoGroups.length;
   countAll.textContent = `${total}`;
   countVideo.textContent = `${videos}`;
   countImage.textContent = `${images}`;
-  if (countGroup) countGroup.textContent = `${groups}`;
 }
 
 function renderLibrary() {
@@ -721,85 +713,6 @@ function renderLibrary() {
   }
 
   videos.forEach((video) => {
-    if (video.type === "photoGroup") {
-      const card = document.createElement("div");
-      card.className = "video-card";
-      card.draggable = true;
-      card.addEventListener("dragstart", () => {
-        draggedLibraryEntry = { id: video.id, type: "photoGroup" };
-        card.classList.add("dragging");
-      });
-      card.addEventListener("dragend", () => {
-        draggedLibraryEntry = null;
-        card.classList.remove("dragging");
-      });
-
-      const info = document.createElement("div");
-      info.className = "video-info";
-
-      const title = document.createElement("div");
-      title.className = "video-title";
-      title.textContent = video.title;
-
-      const meta = document.createElement("div");
-      meta.className = "video-meta";
-      meta.textContent = `Grupo de fotos | ${video.photos?.length || 0} fotos | ${video.displayDuration || 30}s`;
-
-      const thumbGrid = document.createElement("div");
-      thumbGrid.className = "group-photos";
-      (video.photos || []).slice(0, 4).forEach((photo) => {
-        const thumb = document.createElement("div");
-        thumb.className = "group-thumb";
-        const img = document.createElement("img");
-        img.src = `/uploads/${photo.filename}`;
-        img.alt = "";
-        thumb.appendChild(img);
-        thumbGrid.appendChild(thumb);
-      });
-
-      const actions = document.createElement("div");
-      actions.className = "video-actions";
-
-      const toggleBtn = document.createElement("button");
-      toggleBtn.type = "button";
-      const inPlaylist = playlist.some(
-        (entry) => entry.type === "photoGroup" && entry.id === video.id
-      );
-      toggleBtn.textContent = inPlaylist ? "Quitar de playlist" : "Agregar a playlist";
-      toggleBtn.addEventListener("click", () => {
-        if (inPlaylist) {
-          playlist = playlist.filter((entry) => !(entry.type === "photoGroup" && entry.id === video.id));
-        } else {
-          playlist.push({
-            id: video.id,
-            type: "photoGroup",
-            title: video.title,
-            footer: video.footer,
-            photos: video.photos || [],
-            displayDuration: video.displayDuration
-          });
-        }
-        renderPlaylist();
-        setPlaylistDirty(true);
-        setStatus("Orden pendiente de guardar");
-        renderLibrary();
-      });
-      actions.appendChild(toggleBtn);
-
-      const deleteBtn = document.createElement("button");
-      deleteBtn.type = "button";
-      deleteBtn.textContent = "Eliminar";
-      deleteBtn.addEventListener("click", () => deletePhotoGroup(video.id));
-      actions.appendChild(deleteBtn);
-
-      info.appendChild(title);
-      info.appendChild(meta);
-      info.appendChild(thumbGrid);
-      info.appendChild(actions);
-      card.appendChild(info);
-      libraryEl.appendChild(card);
-      return;
-    }
     const card = document.createElement("div");
     card.className = "video-card";
     card.draggable = true;
@@ -1382,23 +1295,11 @@ if (uploadMode && groupSelectWrap) {
         ? ".jpg,.jpeg,.png,.webp,.gif"
         : ".mp4,.webm,.mkv,.jpg,.jpeg,.png,.webp,.gif";
     if (mode === "group") {
-      libraryFilter = "group";
-      libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
-        btn.classList.toggle("is-active", btn.dataset.filter === "group");
-      });
       if (groupPanel) groupPanel.hidden = false;
-      if (libraryEl) libraryEl.hidden = true;
       renderPhotoGroups();
-    } else {
-      if (libraryFilter === "group") {
-        libraryFilter = "all";
-        libraryToolbar.querySelectorAll(".filter-btn").forEach((btn) => {
-          btn.classList.toggle("is-active", btn.dataset.filter === "all");
-        });
-      }
-      if (groupPanel) groupPanel.hidden = libraryFilter !== "group";
-      if (libraryEl) libraryEl.hidden = libraryFilter === "group";
-      renderLibrary();
+      setStatus("Selecciona grupos y sube fotos");
+    } else if (groupPanel) {
+      groupPanel.hidden = true;
     }
   });
   try {
