@@ -75,6 +75,14 @@ video {
   align-items: stretch;
 }
 
+.collage-empty {
+  grid-column: 1 / -1;
+  color: rgba(255, 255, 255, 0.7);
+  font-size: 18px;
+  text-align: center;
+  padding: 40px;
+}
+
 .collage-cell {
   width: 100%;
   height: 100%;

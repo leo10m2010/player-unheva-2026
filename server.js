@@ -272,7 +272,7 @@ function getOrderedPlaylist(data, options = {}) {
         ? (item.photos || []).map((photo) => ({
             id: photo.id,
             filename: photo.filename,
-            url: `/uploads/${photo.filename}`,
+            url: `/api/photo-groups/${item.id}/photos/${photo.id}/stream`,
             width: photo.width || null,
             height: photo.height || null
           }))
@@ -293,6 +293,14 @@ function getContentType(filename) {
   if (ext === ".webm") return "video/webm";
   if (ext === ".mkv") return "video/x-matroska";
   return "video/mp4";
+}
+
+function getImageContentType(filename) {
+  const ext = path.extname(filename).toLowerCase();
+  if (ext === ".png") return "image/png";
+  if (ext === ".webp") return "image/webp";
+  if (ext === ".gif") return "image/gif";
+  return "image/jpeg";
 }
 
 async function ensureDirs() {
@@ -877,7 +885,12 @@ app.get("/api/videos/:id/stream", async (req, res) => {
 
   const filePath = path.join(UPLOAD_DIR, video.filename);
   if (detectMediaType(video) === "image") {
-    return res.redirect(`/uploads/${video.filename}`);
+    const stat = await fs.stat(filePath);
+    res.writeHead(200, {
+      "Content-Length": stat.size,
+      "Content-Type": getImageContentType(video.filename)
+    });
+    return fssync.createReadStream(filePath).pipe(res);
   }
   const stat = await fs.stat(filePath);
   const fileSize = stat.size;
@@ -908,6 +921,21 @@ app.get("/api/videos/:id/stream", async (req, res) => {
     });
     fssync.createReadStream(filePath).pipe(res);
   }
+});
+
+app.get("/api/photo-groups/:id/photos/:photoId/stream", async (req, res) => {
+  const data = getData();
+  const group = (data.photoGroups || []).find((item) => item.id === req.params.id);
+  if (!group) return res.status(404).end();
+  const photo = (group.photos || []).find((item) => item.id === req.params.photoId);
+  if (!photo) return res.status(404).end();
+  const filePath = path.join(UPLOAD_DIR, photo.filename);
+  const stat = await fs.stat(filePath);
+  res.writeHead(200, {
+    "Content-Length": stat.size,
+    "Content-Type": getImageContentType(photo.filename)
+  });
+  return fssync.createReadStream(filePath).pipe(res);
 });
 
 app.post("/api/player/status", (req, res) => {

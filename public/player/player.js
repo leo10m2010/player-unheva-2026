@@ -120,7 +120,13 @@ class Player24x7 {
   renderCollage() {
     if (!collageGrid) return;
     collageGrid.innerHTML = "";
-    if (!this.collagePhotos.length) return;
+    if (!this.collagePhotos.length) {
+      const empty = document.createElement("div");
+      empty.className = "collage-empty";
+      empty.textContent = "Grupo sin fotos";
+      collageGrid.appendChild(empty);
+      return;
+    }
     const total = this.collagePhotos.length;
     const slots = Math.min(3, total);
     const used = new Set();
