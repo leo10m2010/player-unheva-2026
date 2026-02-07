@@ -12,6 +12,22 @@ const { probeVideo, probeImage, createThumbnail, transcodeToMp4, createAdaptiveH
 
 const PORT = Number(process.env.PORT || 3000);
 const ADMIN_TOKEN = String(process.env.ADMIN_TOKEN || "").trim();
+const REQUIRE_ADMIN_TOKEN = String(process.env.REQUIRE_ADMIN_TOKEN || "").trim().toLowerCase();
+const ENFORCE_ADMIN_TOKEN = REQUIRE_ADMIN_TOKEN
+  ? ["1", "true", "yes", "on"].includes(REQUIRE_ADMIN_TOKEN)
+  : process.env.NODE_ENV === "production";
+const PLAYER_TOKEN = String(process.env.PLAYER_TOKEN || "").trim();
+const REQUIRE_PLAYER_TOKEN = String(process.env.REQUIRE_PLAYER_TOKEN || "").trim().toLowerCase();
+const ENFORCE_PLAYER_TOKEN = REQUIRE_PLAYER_TOKEN
+  ? ["1", "true", "yes", "on"].includes(REQUIRE_PLAYER_TOKEN)
+  : process.env.NODE_ENV === "production";
+const EFFECTIVE_PLAYER_TOKEN = PLAYER_TOKEN || ADMIN_TOKEN;
+const LOG_TO_FILES_RAW = String(process.env.LOG_TO_FILES || "").trim().toLowerCase();
+const LOG_TO_FILES = LOG_TO_FILES_RAW
+  ? ["1", "true", "yes", "on"].includes(LOG_TO_FILES_RAW)
+  : process.env.NODE_ENV !== "production";
+const LOG_FILE_MAX_SIZE = Math.max(1024 * 1024, Number(process.env.LOG_FILE_MAX_SIZE || 10 * 1024 * 1024));
+const LOG_FILE_MAX_FILES = Math.max(1, Number(process.env.LOG_FILE_MAX_FILES || 5));
 const UPLOAD_DIR = path.join(__dirname, "uploads");
 const THUMB_DIR = path.join(__dirname, "thumbnails");
 const HLS_DIR = path.join(__dirname, "hls");
@@ -20,14 +36,29 @@ const LOG_DIR = path.join(__dirname, "logs");
 const app = express();
 const ERROR_WINDOW_MS = 24 * 60 * 60 * 1000;
 
+const loggerTransports = [new winston.transports.Console({ format: winston.format.simple() })];
+if (LOG_TO_FILES) {
+  loggerTransports.push(
+    new winston.transports.File({
+      filename: path.join(LOG_DIR, "error.log"),
+      level: "error",
+      maxsize: LOG_FILE_MAX_SIZE,
+      maxFiles: LOG_FILE_MAX_FILES,
+      tailable: true
+    }),
+    new winston.transports.File({
+      filename: path.join(LOG_DIR, "combined.log"),
+      maxsize: LOG_FILE_MAX_SIZE,
+      maxFiles: LOG_FILE_MAX_FILES,
+      tailable: true
+    })
+  );
+}
+
 const logger = winston.createLogger({
   level: process.env.LOG_LEVEL || "info",
   format: winston.format.json(),
-  transports: [
-    new winston.transports.File({ filename: path.join(LOG_DIR, "error.log"), level: "error" }),
-    new winston.transports.File({ filename: path.join(LOG_DIR, "combined.log") }),
-    new winston.transports.Console({ format: winston.format.simple() })
-  ]
+  transports: loggerTransports
 });
 
 const playerStatus = {
@@ -194,6 +225,51 @@ function isAudioExtension(filename) {
   return [".mp3", ".m4a", ".aac", ".ogg", ".wav"].includes(ext);
 }
 
+async function unlinkIfExists(filePath) {
+  if (!filePath) return;
+  try {
+    await fs.unlink(filePath);
+  } catch (error) {
+    if (error?.code !== "ENOENT") {
+      throw error;
+    }
+  }
+}
+
+async function rmDirIfExists(dirPath) {
+  if (!dirPath) return;
+  await fs.rm(dirPath, { recursive: true, force: true });
+}
+
+function parseSingleRange(rangeHeader, fileSize) {
+  if (!rangeHeader) return null;
+  if (!Number.isFinite(fileSize) || fileSize <= 0) return null;
+  const match = /^bytes=(\d*)-(\d*)$/.exec(String(rangeHeader).trim());
+  if (!match) return null;
+
+  const [, startRaw, endRaw] = match;
+  if (!startRaw && !endRaw) return null;
+
+  if (!startRaw) {
+    const suffixLength = Number(endRaw);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    const bounded = Math.min(fileSize, suffixLength);
+    return {
+      start: Math.max(0, fileSize - bounded),
+      end: fileSize - 1
+    };
+  }
+
+  const start = Number(startRaw);
+  let end = endRaw ? Number(endRaw) : fileSize - 1;
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  if (start < 0 || start >= fileSize) return null;
+  if (end < start) return null;
+  end = Math.min(end, fileSize - 1);
+
+  return { start, end };
+}
+
 function detectMediaType(item) {
   if (!item) return "video";
   if (item.type === "image" || item.type === "video") return item.type;
@@ -336,7 +412,9 @@ async function ensureDirs() {
   await fs.mkdir(UPLOAD_DIR, { recursive: true });
   await fs.mkdir(THUMB_DIR, { recursive: true });
   await fs.mkdir(HLS_DIR, { recursive: true });
-  await fs.mkdir(LOG_DIR, { recursive: true });
+  if (LOG_TO_FILES) {
+    await fs.mkdir(LOG_DIR, { recursive: true });
+  }
 }
 
 async function cleanupOrphanThumbnails() {
@@ -420,12 +498,32 @@ function extractAdminToken(req) {
   return "";
 }
 
+function extractPlayerToken(req) {
+  const headerToken = String(req.get("x-player-token") || "").trim();
+  if (headerToken) return headerToken;
+  const auth = String(req.get("authorization") || "").trim();
+  if (auth.toLowerCase().startsWith("bearer ")) {
+    return auth.slice(7).trim();
+  }
+  return "";
+}
+
 app.use("/api", (req, res, next) => {
-  if (!ADMIN_TOKEN) return next();
   const isWriteMethod = !["GET", "HEAD", "OPTIONS"].includes(req.method);
   if (!isWriteMethod) return next();
-  const allowedWithoutToken = req.path === "/player/status" || req.path === "/player/event";
-  if (allowedWithoutToken) return next();
+
+  const isPlayerWrite = req.path === "/player/status" || req.path === "/player/event";
+  if (isPlayerWrite) {
+    const shouldProtectPlayerWrites = ENFORCE_PLAYER_TOKEN || Boolean(EFFECTIVE_PLAYER_TOKEN);
+    if (!shouldProtectPlayerWrites) return next();
+    const token = extractPlayerToken(req) || extractAdminToken(req);
+    if (token !== EFFECTIVE_PLAYER_TOKEN) {
+      return res.status(401).json({ error: "Unauthorized" });
+    }
+    return next();
+  }
+
+  if (!ADMIN_TOKEN) return next();
   const token = extractAdminToken(req);
   if (token !== ADMIN_TOKEN) {
     return res.status(401).json({ error: "Unauthorized" });
@@ -798,19 +896,28 @@ app.post("/api/maintenance/cleanup-thumbnails", async (req, res) => {
 
 app.post("/api/videos", upload.single("video"), async (req, res) => {
   let file = null;
+  let videoId = null;
+  let finalPath = null;
+  let originalUploadPath = null;
+  let thumbnailPath = null;
+  let hlsOutputDir = null;
+  let isVideoUpload = false;
+  let persisted = false;
   try {
     file = req.file;
     if (!file) {
       return res.status(400).json({ error: "No file uploaded" });
     }
+    originalUploadPath = file.path;
     if (!isSupportedExtension(file.originalname)) {
-      await fs.unlink(file.path);
+      await unlinkIfExists(file.path);
       return res.status(400).json({ error: "Unsupported file type" });
     }
 
-    const videoId = uuidv4();
+    videoId = uuidv4();
     const ext = path.extname(file.filename).toLowerCase();
     const mediaType = isImageExtension(file.originalname) ? "image" : "video";
+    isVideoUpload = mediaType === "video";
     const defaultImageDuration = Number(
       process.env.DEFAULT_IMAGE_DURATION || getData()?.settings?.imageDefaultDuration || 15
     );
@@ -822,7 +929,7 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
       audioCodec: null
     };
 
-    let finalPath = file.path;
+    finalPath = file.path;
     let finalFilename = file.filename;
     let thumbnail = null;
     let duration = 0;
@@ -837,7 +944,7 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
           const transcodedName = `${uuidv4()}.mp4`;
           const transcodedPath = path.join(UPLOAD_DIR, transcodedName);
           await transcodeToMp4(finalPath, transcodedPath);
-          await fs.unlink(finalPath);
+          await unlinkIfExists(finalPath);
           finalPath = transcodedPath;
           finalFilename = transcodedName;
           metadata = await probeVideo(finalPath);
@@ -845,16 +952,16 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
 
         duration = metadata.duration || 0;
         const thumbName = `${path.parse(finalFilename).name}.jpg`;
-        const thumbPath = path.join(THUMB_DIR, thumbName);
+        thumbnailPath = path.join(THUMB_DIR, thumbName);
         const seekPoint = duration > 10 ? 5 : Math.max(0, duration / 2);
         try {
-          await createThumbnail(finalPath, thumbPath, seekPoint);
+          await createThumbnail(finalPath, thumbnailPath, seekPoint);
         } catch (error) {
           logger.error(`Thumbnail error for ${finalFilename}: ${error.message}`);
         }
-        thumbnail = fssync.existsSync(thumbPath) ? `/thumbnails/${thumbName}` : null;
+        thumbnail = fssync.existsSync(thumbnailPath) ? `/thumbnails/${thumbName}` : null;
 
-        const hlsOutputDir = path.join(HLS_DIR, videoId);
+        hlsOutputDir = path.join(HLS_DIR, videoId);
         hlsProcessing.add(videoId);
         hlsFailed.delete(videoId);
         try {
@@ -867,7 +974,7 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
           hlsFailed.add(videoId);
           logger.error(`HLS packaging error for ${finalFilename}: ${error.message}`);
           try {
-            await fs.rm(hlsOutputDir, { recursive: true, force: true });
+            await rmDirIfExists(hlsOutputDir);
           } catch (cleanupError) {
             logger.error(`HLS cleanup error for ${finalFilename}: ${cleanupError.message}`);
           }
@@ -904,13 +1011,32 @@ app.post("/api/videos", upload.single("video"), async (req, res) => {
     data.videos.push(videoRecord);
     data.playlist.push(videoRecord.id);
     await saveData();
+    persisted = true;
 
     logger.info(`Upload: ${videoRecord.id} ${videoRecord.title}`);
     res.json(videoRecord);
   } catch (error) {
+    if (videoId && isVideoUpload) {
+      hlsProcessing.delete(videoId);
+      hlsFailed.add(videoId);
+    }
+
+    if (!persisted) {
+      try {
+        if (finalPath && finalPath !== originalUploadPath) {
+          await unlinkIfExists(finalPath);
+        }
+        await unlinkIfExists(originalUploadPath);
+        await unlinkIfExists(thumbnailPath);
+        await rmDirIfExists(hlsOutputDir);
+      } catch (cleanupError) {
+        logger.error(`Upload cleanup error: ${cleanupError.message}`);
+      }
+    }
+
     if (file?.path && error?.code === "QUEUE_FULL") {
       try {
-        await fs.unlink(file.path);
+        await unlinkIfExists(file.path);
       } catch (unlinkError) {
         logger.error(`Cleanup queued file failed: ${unlinkError.message}`);
       }
@@ -994,12 +1120,12 @@ app.get("/api/videos/:id/stream", async (req, res, next) => {
     const contentType = getContentType(video.filename);
 
     if (range) {
-      const parts = range.replace(/bytes=/, "").split("-");
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
-      if (Number.isNaN(start) || Number.isNaN(end) || start > end) {
+      const parsedRange = parseSingleRange(range, fileSize);
+      if (!parsedRange) {
+        res.setHeader("Content-Range", `bytes */${fileSize}`);
         return res.status(416).end();
       }
+      const { start, end } = parsedRange;
       const chunkSize = end - start + 1;
       const fileStream = fssync.createReadStream(filePath, { start, end });
 
@@ -1124,6 +1250,19 @@ app.use((req, res) => {
 async function start() {
   await ensureDirs();
   await initStore();
+
+  if (ENFORCE_ADMIN_TOKEN && !ADMIN_TOKEN) {
+    throw new Error(
+      "ADMIN_TOKEN is required for write endpoints. Set ADMIN_TOKEN or disable REQUIRE_ADMIN_TOKEN."
+    );
+  }
+
+  if (ENFORCE_PLAYER_TOKEN && !EFFECTIVE_PLAYER_TOKEN) {
+    throw new Error(
+      "PLAYER_TOKEN is required for /api/player/* writes. Set PLAYER_TOKEN (recommended) or ADMIN_TOKEN."
+    );
+  }
+
   await backfillMissingHls();
 
   logger.info("Server starting");
@@ -1158,4 +1297,7 @@ async function start() {
   });
 }
 
-start();
+start().catch((error) => {
+  logger.error(`Startup failure: ${error?.stack || error}`);
+  process.exit(1);
+});

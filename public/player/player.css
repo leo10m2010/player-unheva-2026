@@ -178,6 +178,8 @@ video[hidden] {
   );
   opacity: 0;
   transform: translateY(12px);
+  visibility: hidden;
+  pointer-events: none;
   transition: opacity 0.3s ease, transform 0.3s ease;
   z-index: 2;
 }
@@ -185,6 +187,8 @@ video[hidden] {
 .controls-overlay.visible {
   opacity: 1;
   transform: translateY(0);
+  visibility: visible;
+  pointer-events: auto;
 }
 
 .progress-container {
@@ -245,19 +249,24 @@ video[hidden] {
   padding: 12px 18px;
   border-radius: 999px;
   transition: all 0.2s;
-  outline: none;
+  outline: 2px solid transparent;
+  outline-offset: 2px;
 }
 
 .control-btn:hover,
-.control-btn:focus,
 .control-btn.focused {
   background: transparent;
   border-color: transparent;
   transform: translateY(-1px);
 }
 
-.control-btn.focused {
-  outline: none;
+.control-btn:focus-visible,
+.control-btn.focused,
+.icon-btn.focused,
+.fullscreen-btn:focus-visible,
+.fullscreen-btn.focused {
+  outline: 2px solid var(--netflix-white);
+  box-shadow: 0 0 0 3px rgba(229, 9, 20, 0.55);
 }
 
 .play-pause-btn {
@@ -408,11 +417,6 @@ video[hidden] {
   height: 30px;
   color: var(--netflix-white);
   display: block;
-}
-
-.icon-btn.focused,
-.fullscreen-btn:focus {
-  outline: none;
 }
 
 @media (min-width: 1280px) {

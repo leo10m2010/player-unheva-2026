@@ -76,6 +76,17 @@ let queueWasRunning = false;
 let tvModePreference = "auto";
 let authWarningShown = false;
 let recentErrorsCache = [];
+let playlistSignature = "";
+let librarySignature = "";
+let photoGroupSignature = "";
+let refreshInFlight = false;
+let refreshQueued = false;
+let refreshPromise = Promise.resolve();
+
+function buildListSignature(list, projector) {
+  if (!Array.isArray(list) || !list.length) return "";
+  return list.map(projector).join("||");
+}
 
 function readAdminToken() {
   try {
@@ -333,20 +344,44 @@ async function fetchJson(url, options) {
 }
 
 async function fetchPlaylist() {
-  playlist = await fetchJson("/api/playlist");
+  const nextPlaylist = await fetchJson("/api/playlist");
+  const nextSignature = buildListSignature(nextPlaylist, (entry) => {
+    const kind = entry?.type || "video";
+    return `${kind}:${entry?.id || ""}:${entry?.title || ""}:${entry?.displayDuration || ""}:${entry?.footer || ""}`;
+  });
+  playlist = nextPlaylist;
   setPlaylistDirty(false);
-  renderPlaylist();
+  if (nextSignature !== playlistSignature) {
+    playlistSignature = nextSignature;
+    renderPlaylist();
+  }
 }
 
 async function fetchLibrary() {
-  libraryItems = await fetchJson("/api/videos");
-  renderLibrary();
+  const nextLibrary = await fetchJson("/api/videos");
+  const nextSignature = buildListSignature(nextLibrary, (item) => {
+    const kind = item?.type || "video";
+    return `${kind}:${item?.id || ""}:${item?.title || ""}:${item?.duration || ""}:${item?.displayDuration || ""}:${item?.hlsStatus || ""}:${item?.thumbnail || ""}`;
+  });
+  libraryItems = nextLibrary;
+  if (nextSignature !== librarySignature) {
+    librarySignature = nextSignature;
+    renderLibrary();
+  }
 }
 
 async function fetchPhotoGroups() {
   if (!photoGroupList) return;
-  photoGroups = await fetchJson("/api/photo-groups");
-  renderPhotoGroups();
+  const nextGroups = await fetchJson("/api/photo-groups");
+  const nextSignature = buildListSignature(nextGroups, (group) => {
+    const photos = Array.isArray(group?.photos) ? group.photos.length : 0;
+    return `${group?.id || ""}:${group?.title || ""}:${group?.displayDuration || ""}:${group?.footer || ""}:${photos}`;
+  });
+  photoGroups = nextGroups;
+  if (nextSignature !== photoGroupSignature) {
+    photoGroupSignature = nextSignature;
+    renderPhotoGroups();
+  }
 }
 
 function setPlaylistDirty(value) {
@@ -1699,7 +1734,33 @@ libraryToolbar.addEventListener("click", (event) => {
 });
 
 async function refreshAll() {
-  await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats(), fetchPhotoGroups()]);
+  if (refreshInFlight) {
+    refreshQueued = true;
+    return refreshPromise;
+  }
+
+  refreshInFlight = true;
+  refreshPromise = (async () => {
+    do {
+      refreshQueued = false;
+      if (hasPendingChanges()) {
+        await fetchHealthAndStats();
+      } else {
+        await Promise.all([fetchPlaylist(), fetchLibrary(), fetchHealthAndStats(), fetchPhotoGroups()]);
+      }
+    } while (refreshQueued);
+  })().finally(() => {
+    refreshInFlight = false;
+  });
+
+  return refreshPromise;
+}
+
+function showOfflineState() {
+  liveState.classList.remove("online");
+  liveState.classList.add("error");
+  liveState.textContent = "Sin conexion";
+  metricLastUpdate.textContent = "No se pudo actualizar";
 }
 
 persistAdminTokenFromUrl();
@@ -1707,24 +1768,12 @@ persistAdminTokenFromUrl();
 refreshAll().catch(() => {
   setStatus("Error cargando datos");
   showToast("Error cargando datos", "error");
+  showOfflineState();
 });
 setInterval(() => {
   if (uploadInProgress) return;
-  if (hasPendingChanges()) {
-    fetchHealthAndStats().catch(() => {
-      liveState.classList.remove("online");
-      liveState.classList.add("error");
-      liveState.textContent = "Sin conexion";
-      metricLastUpdate.textContent = "No se pudo actualizar";
-    });
-    return;
-  }
-
   refreshAll().catch(() => {
-    liveState.classList.remove("online");
-    liveState.classList.add("error");
-    liveState.textContent = "Sin conexion";
-    metricLastUpdate.textContent = "No se pudo actualizar";
+    showOfflineState();
   });
 }, 15000);
 

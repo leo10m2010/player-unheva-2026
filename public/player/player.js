@@ -23,6 +23,7 @@ const nextBtn = document.getElementById("nextBtn");
 const muteBtn = document.getElementById("muteBtn");
 const infoBtn = document.getElementById("infoBtn");
 const fullscreenBtn = document.getElementById("fullscreenBtn");
+const PLAYER_TOKEN_KEY = "player-api-token";
 
 class Player24x7 {
   constructor() {
@@ -34,7 +35,15 @@ class Player24x7 {
     this.controlsTimer = null;
     this.infoTimer = null;
     this.playlistTimer = null;
+    this.healthTimer = null;
     this.statusTimer = null;
+    this.statusRetryTimer = null;
+    this.statusRequestInFlight = false;
+    this.statusFailureCount = 0;
+    this.statusRetryDelayMs = 5000;
+    this.maxStatusRetryDelayMs = 120000;
+    this.playlistRequestInFlight = false;
+    this.hasStartedPlayback = false;
     this.focusIndex = 1;
     this.controls = [prevBtn, playBtn, nextBtn, muteBtn, infoBtn, fullscreenBtn];
     this.errorTimer = null;
@@ -60,11 +69,42 @@ class Player24x7 {
     this.playAttemptId = 0;
     this.hls = null;
     this.isTizen = this.detectTizen();
+    this.playerToken = this.resolvePlayerToken();
+  }
+
+  resolvePlayerToken() {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = String(params.get("playerToken") || params.get("token") || "").trim();
+      if (urlToken) {
+        localStorage.setItem(PLAYER_TOKEN_KEY, urlToken);
+        params.delete("playerToken");
+        params.delete("token");
+        const next = `${window.location.pathname}${params.toString() ? `?${params.toString()}` : ""}${window.location.hash || ""}`;
+        window.history.replaceState({}, "", next);
+        return urlToken;
+      }
+      return String(localStorage.getItem(PLAYER_TOKEN_KEY) || "").trim();
+    } catch (error) {
+      return "";
+    }
+  }
+
+  authHeaders() {
+    const headers = { "Content-Type": "application/json" };
+    if (this.playerToken) {
+      headers["x-player-token"] = this.playerToken;
+    }
+    return headers;
   }
 
   detectTizen() {
     const ua = navigator.userAgent || "";
-    return /tizen|samsungbrowser|smart-tv|smarttv/i.test(ua);
+    const platform =
+      (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+    const hasTvApis = typeof window.tizen !== "undefined" || typeof window.webapis !== "undefined";
+    const looksLikeTvUa = /tizen|smart-tv|smarttv|maple/i.test(ua);
+    return hasTvApis || looksLikeTvUa || /tizen/i.test(platform);
   }
 
   async init() {
@@ -148,6 +188,8 @@ class Player24x7 {
   }
 
   async loadPlaylist() {
+    if (this.playlistRequestInFlight) return;
+    this.playlistRequestInFlight = true;
     try {
       const res = await fetch("/api/playlist");
       const list = await res.json();
@@ -155,11 +197,11 @@ class Player24x7 {
 
       if (!this.playlist.length) {
         this.showMessage("No hay contenido en la playlist");
-        setTimeout(() => this.loadPlaylist(), 30000);
       }
     } catch (error) {
       console.error("Error cargando playlist:", error);
-      setTimeout(() => this.loadPlaylist(), 10000);
+    } finally {
+      this.playlistRequestInFlight = false;
     }
   }
 
@@ -174,6 +216,7 @@ class Player24x7 {
 
   startPlayback() {
     if (!this.playlist.length) return;
+    this.hasStartedPlayback = true;
     this.playVideo(this.currentIndex);
   }
 
@@ -428,22 +471,31 @@ class Player24x7 {
   }
 
   async refreshPlaylist() {
+    if (this.playlistRequestInFlight) return;
+    this.playlistRequestInFlight = true;
     try {
       const res = await fetch("/api/playlist");
       const list = await res.json();
       if (Array.isArray(list)) {
+        const hadItems = this.playlist.length > 0;
         const currentIds = this.playlist.map((item) => item.id).join(",");
         const nextIds = list.map((item) => item.id).join(",");
         if (currentIds !== nextIds) {
           this.setPlaylist(list);
+          if (!hadItems && this.playlist.length && !this.hasStartedPlayback) {
+            this.startPlayback();
+          }
         }
       }
     } catch (error) {
       console.warn("No se pudo refrescar playlist", error);
+    } finally {
+      this.playlistRequestInFlight = false;
     }
   }
 
   startPlaylistRefresh() {
+    this.refreshPlaylist();
     this.playlistTimer = setInterval(() => this.refreshPlaylist(), 30000);
   }
 
@@ -550,41 +602,57 @@ class Player24x7 {
   }
 
   handleKeydown(event) {
+    const action = this.resolveKeyAction(event);
     if (unmuteOverlay.hidden === false) {
-      if (event.key === "Enter") this.unmute();
+      if (action === "activate") this.unmute();
       return;
     }
 
     this.showControls();
-    const key = event.key;
-
-    if (key === "ArrowRight") {
+    if (action === "right") {
       this.focusNext();
       return;
     }
-    if (key === "ArrowLeft") {
+    if (action === "left") {
       this.focusPrev();
       return;
     }
-    if (key === "Enter" || key === " ") {
+    if (action === "activate") {
       this.activateFocused();
       return;
     }
-    if (key === "MediaPlayPause") {
+    if (action === "playpause") {
       this.togglePlay();
       return;
     }
-    if (key === "MediaTrackNext") {
+    if (action === "next") {
       this.playNext();
       return;
     }
-    if (key === "MediaTrackPrevious") {
+    if (action === "prev") {
       this.playPrev();
       return;
     }
-    if (key === "i" || key === "I") {
+    if (action === "info") {
       this.toggleInfo();
     }
+  }
+
+  resolveKeyAction(event) {
+    const key = String(event.key || "").toLowerCase();
+    const code = String(event.code || "").toLowerCase();
+    const numeric = Number(event.keyCode || event.which || 0);
+
+    if (key === "arrowright" || numeric === 39) return "right";
+    if (key === "arrowleft" || numeric === 37) return "left";
+    if (key === "enter" || key === " " || key === "spacebar" || code === "space" || numeric === 13 || numeric === 32) {
+      return "activate";
+    }
+    if (key === "mediaplaypause" || numeric === 179) return "playpause";
+    if (key === "mediatracknext" || numeric === 176) return "next";
+    if (key === "mediatrackprevious" || numeric === 177) return "prev";
+    if (key === "i" || numeric === 73) return "info";
+    return "unknown";
   }
 
   focusNext() {
@@ -885,17 +953,25 @@ class Player24x7 {
 
   toggleFullscreen() {
     const doc = document;
-    if (doc.fullscreenElement) {
-      doc.exitFullscreen();
-    } else if (doc.documentElement.requestFullscreen) {
-      doc.documentElement.requestFullscreen();
-    } else if (doc.documentElement.webkitRequestFullscreen) {
-      doc.documentElement.webkitRequestFullscreen();
+    const root = doc.documentElement;
+    if (doc.fullscreenElement || doc.webkitFullscreenElement) {
+      if (doc.exitFullscreen) {
+        doc.exitFullscreen();
+      } else if (doc.webkitExitFullscreen) {
+        doc.webkitExitFullscreen();
+      }
+      return;
+    }
+    if (root.requestFullscreen) {
+      root.requestFullscreen();
+    } else if (root.webkitRequestFullscreen) {
+      root.webkitRequestFullscreen();
     }
   }
 
   startHealthMonitor() {
-    setInterval(() => {
+    if (this.healthTimer) return;
+    this.healthTimer = setInterval(() => {
       if (this.currentItemType() === "image") {
         if (!this.imagePlaying && !this.userPaused) {
           this.togglePlay();
@@ -905,10 +981,29 @@ class Player24x7 {
           this.togglePlay();
         }
       } else if (videoEl.paused && !this.userPaused) {
-        videoEl.play();
+        videoEl.play().catch(() => {});
       }
       this.logStatus();
     }, 60000);
+  }
+
+  resetStatusRetryState() {
+    this.statusFailureCount = 0;
+    this.statusRetryDelayMs = 5000;
+    if (this.statusRetryTimer) {
+      clearTimeout(this.statusRetryTimer);
+      this.statusRetryTimer = null;
+    }
+  }
+
+  scheduleStatusRetry() {
+    if (this.statusRetryTimer) return;
+    const jitterMs = Math.floor(Math.random() * 1000);
+    const waitMs = this.statusRetryDelayMs + jitterMs;
+    this.statusRetryTimer = setTimeout(() => {
+      this.statusRetryTimer = null;
+      this.sendStatus();
+    }, waitMs);
   }
 
   logStatus() {
@@ -940,11 +1035,13 @@ class Player24x7 {
   }
 
   async sendStatus() {
+    if (this.statusRequestInFlight) return;
+    this.statusRequestInFlight = true;
     const mediaType = this.currentItemType();
     try {
-      await fetch("/api/player/status", {
+      const res = await fetch("/api/player/status", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.authHeaders(),
         body: JSON.stringify({
           currentVideoId: this.currentVideoId(),
           currentTime: this.getCurrentMediaTime(),
@@ -963,9 +1060,23 @@ class Player24x7 {
           mediaType
         })
       });
+      if (!res.ok) {
+        throw new Error(`Status endpoint returned ${res.status}`);
+      }
+      this.resetStatusRetryState();
     } catch (error) {
-      console.warn("Status offline", error);
-      setTimeout(() => this.sendStatus(), 10000);
+      this.statusFailureCount += 1;
+      this.statusRetryDelayMs = Math.min(
+        this.maxStatusRetryDelayMs,
+        Math.round(this.statusRetryDelayMs * 1.8)
+      );
+      console.warn(
+        `Status offline (attempt ${this.statusFailureCount}, retry in ~${this.statusRetryDelayMs}ms)`,
+        error
+      );
+      this.scheduleStatusRetry();
+    } finally {
+      this.statusRequestInFlight = false;
     }
   }
 
@@ -973,7 +1084,7 @@ class Player24x7 {
     try {
       await fetch("/api/player/event", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: this.authHeaders(),
         body: JSON.stringify({ type, videoId, message })
       });
     } catch (error) {

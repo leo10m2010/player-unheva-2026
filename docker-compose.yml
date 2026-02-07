@@ -11,6 +11,15 @@ services:
       - ./logs:/app/logs
     environment:
       - NODE_ENV=production
+      - REQUIRE_ADMIN_TOKEN=true
+      - ADMIN_TOKEN=${ADMIN_TOKEN:?Define ADMIN_TOKEN in your shell or .env file}
+      - REQUIRE_PLAYER_TOKEN=true
+      - PLAYER_TOKEN=${PLAYER_TOKEN:-}
+      - FFPROBE_IDLE_TIMEOUT_MS=120000
+      - FFMPEG_IDLE_TIMEOUT_MS=900000
+      - FFMPEG_TOTAL_TIMEOUT_MS=0
+      - MEDIA_STDIO_CAPTURE_LIMIT=131072
+      - MEDIA_TERM_GRACE_MS=3000
       - MAX_FILE_SIZE=4294967296
       - TRANSCODE_CONCURRENCY=1
       - MAX_TRANSCODE_QUEUE=25
@@ -20,6 +29,9 @@ services:
       - SHUTDOWN_TIMEOUT_MS=15000
       - PORT=3000
       - LOG_LEVEL=info
+      - LOG_TO_FILES=false
+      - LOG_FILE_MAX_SIZE=10485760
+      - LOG_FILE_MAX_FILES=5
     restart: always
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]

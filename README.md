@@ -11,6 +11,12 @@ docker compose up -d --build
 - Admin: `http://localhost:8090/admin`
 - Player: `http://localhost:8090/player`
 
+Si activas token para telemetria del player, abre una vez:
+
+- `http://localhost:8090/player?playerToken=TU_PLAYER_TOKEN`
+
+El reproductor guarda el token en `localStorage` y luego sigue funcionando con `/player` normal.
+
 ## Formatos soportados
 
 - MP4
@@ -84,7 +90,17 @@ Respuesta ejemplo:
 - `MAX_FILE_SIZE=4294967296` (4 GB)
 - `TRANSCODE_CONCURRENCY=1`
 - `MAX_TRANSCODE_QUEUE=25`
-- `ADMIN_TOKEN=` (opcional, protege endpoints de escritura con `x-admin-token`)
+- `ADMIN_TOKEN=` (requerido en produccion para endpoints de escritura con `x-admin-token`)
+- `REQUIRE_ADMIN_TOKEN=true` (por defecto en `NODE_ENV=production`)
+- `PLAYER_TOKEN=` (recomendado, token dedicado para `POST /api/player/*`)
+- `REQUIRE_PLAYER_TOKEN=true` (por defecto en `NODE_ENV=production`)
+- `FFPROBE_IDLE_TIMEOUT_MS=120000` (timeout por inactividad de `ffprobe`)
+- `FFMPEG_IDLE_TIMEOUT_MS=900000` (timeout por inactividad de `ffmpeg`, no por tamano)
+- `FFMPEG_TOTAL_TIMEOUT_MS=0` (0 = sin timeout total, evita cortar videos grandes)
+- `MEDIA_STDIO_CAPTURE_LIMIT=131072` (limite de memoria para salida de ffmpeg/ffprobe)
+- `MEDIA_TERM_GRACE_MS=3000` (gracia antes de forzar `SIGKILL`)
+- `LOG_TO_FILES=false` (en Docker se recomienda log por stdout)
+- `LOG_FILE_MAX_SIZE=10485760` y `LOG_FILE_MAX_FILES=5` (si activas logs en archivo)
 - `REQUEST_TIMEOUT_MS=0`
 - `KEEP_ALIVE_TIMEOUT_MS=65000`
 - `HEADERS_TIMEOUT_MS=66000`
